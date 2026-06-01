@@ -74,11 +74,7 @@ func (s *Subscriber) SyncDone() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncing = false
-	// if s.doneCh != nil {
-	// 	close(s.doneCh)
-	// 	s.doneCh = nil
-	// }
-	fmt.Println("[ws] history sync completed, resuming normal subscription")
+	fmt.Printf("[ws] history sync completed, resuming normal subscription(at %d)\n", s.timeStamp)
 }
 
 // Start implements the Task interface and begins websocket subscription

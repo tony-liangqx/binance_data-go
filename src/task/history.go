@@ -78,6 +78,8 @@ func (h *HistorySyncer) Sync() {
 			break
 		}
 
+		// 包括EndTime
+		// Subscriber记录的最新一条记录是通过REST API获取到并且写入数据库
 		klines, err := client.NewKlinesService().
 			Symbol(h.symbol).
 			Interval(h.period).
@@ -140,8 +142,6 @@ func (h *HistorySyncer) Sync() {
 		// Rate limiting: avoid hitting Binance rate limits
 		time.Sleep(200 * time.Millisecond)
 	}
-
-	fmt.Printf("[history] history sync completed: %d records processed\n", h.timeStamp)
 }
 
 // Ensure compile-time interface compliance
