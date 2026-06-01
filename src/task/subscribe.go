@@ -3,6 +3,7 @@ package task
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"binance.data.sync/src/model"
 
@@ -80,7 +81,11 @@ func (s *Subscriber) SyncDone() {
 // Start implements the Task interface and begins websocket subscription
 func (s *Subscriber) Start(timeStamp int64) {
 	s.setTimeStamp(timeStamp)
-	s.start()
+	// 重试
+	for {
+		s.start()
+		time.Sleep(time.Second * 10)
+	}
 }
 
 // start begins the actual websocket kline subscription loop
@@ -140,12 +145,11 @@ func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
 // processPoint handles a closed kline point: checks gap, saves or triggers history sync.
 func (s *Subscriber) processPoint(point *model.SpotKlinePoint) {
 	// TODO：查询是否导致性能问题？
-	// lastTime, err := s.storage.GetLastTimeStamp(s.symbol, s.period)
-	// if err != nil {
-	// 	fmt.Printf("failed to get last timestamp: %v\n", err)
-	// 	return
-	// }
-	lastTime := s.timeStamp
+	lastTime, err := s.storage.GetLastTimeStamp(s.symbol, s.period)
+	if err != nil {
+		fmt.Printf("failed to get last timestamp: %v\n", err)
+		return
+	}
 
 	if lastTime > 0 {
 		diff := point.StartTime - lastTime
