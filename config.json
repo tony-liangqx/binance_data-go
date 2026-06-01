@@ -7,6 +7,14 @@
     "password": "password",
     "database": "binance_data"
   },
-  "symbol": "BTCUSDT",
-  "period": "1m"
+  "subscriptions": [
+    {
+      "symbol": "BTCUSDT",
+      "period": "1m"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "period": "1m"
+    }
+  ]
 }

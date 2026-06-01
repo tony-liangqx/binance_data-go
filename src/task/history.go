@@ -132,7 +132,7 @@ func (h *HistorySyncer) Sync() {
 		// Check if we've caught up to the latest subscriber timestamp
 		lastKline := klines[len(klines)-1]
 		if lastKline.OpenTime >= targetTime {
-			fmt.Printf("[history] caught up to target time %d\n", targetTime)
+			fmt.Printf("[history] %s %s caught up to target time %d\n", h.symbol, h.period, targetTime)
 			break
 		}
 

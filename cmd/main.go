@@ -10,31 +10,40 @@ import (
 func main() {
 	fmt.Println("binance kline data sync starting...")
 
-	// Get database storage
+	// Get database storage (shared by all subscribers)
 	storage := helper.GetStorage()
 	defer func() {
 		fmt.Println("binance kline data sync stopped")
 	}()
 
-	// Read symbol and period from config
-	symbol := helper.GetSymbol()
-	period := helper.GetPeriod()
-
-	fmt.Printf("config: symbol=%s, period=%s\n", symbol, period)
-
-	// Get the last saved timestamp to pass to the subscriber
-	lastTime, err := storage.GetLastTimeStamp(symbol, period)
-	if err != nil {
-		fmt.Printf("failed to get last timestamp: %v, starting from 0\n", err)
-		lastTime = 0
+	// Read all subscriptions from config
+	subscriptions := helper.GetSubscriptions()
+	if len(subscriptions) == 0 {
+		fmt.Println("no subscriptions configured, exiting")
+		return
 	}
-	fmt.Printf("last saved timestamp: %d\n", lastTime)
 
-	// Create and start the Subscriber in a goroutine
-	subscriber := task.NewSubscriber(storage, symbol, period)
-	go subscriber.Start(lastTime)
+	fmt.Printf("loaded %d subscription(s):\n", len(subscriptions))
 
-	fmt.Println("subscriber started, waiting for kline data...")
+	// Create and start a Subscriber for each symbol/period pair
+	for _, sub := range subscriptions {
+		fmt.Printf("  symbol=%s, period=%s\n", sub.Symbol, sub.Period)
+
+		// Get the last saved timestamp to pass to the subscriber
+		lastTime, err := storage.GetLastTimeStamp(sub.Symbol, sub.Period)
+		if err != nil {
+			fmt.Printf("failed to get last timestamp for %s/%s: %v, starting from 0\n",
+				sub.Symbol, sub.Period, err)
+			lastTime = 0
+		}
+		fmt.Printf("[%s/%s] last saved timestamp: %d\n", sub.Symbol, sub.Period, lastTime)
+
+		// Create and start the Subscriber in a goroutine
+		subscriber := task.NewSubscriber(storage, sub.Symbol, sub.Period)
+		go subscriber.Start(lastTime)
+	}
+
+	fmt.Println("all subscribers started, waiting for kline data...")
 
 	// Block the main goroutine indefinitely
 	select {}

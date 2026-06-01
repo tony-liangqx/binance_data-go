@@ -22,18 +22,23 @@ type StorageConfig struct {
 	Database string `json:"database"`
 }
 
+// Subscription represents a single symbol and period pair
+type Subscription struct {
+	Symbol string `json:"symbol"`
+	Period string `json:"period"`
+}
+
 // AppConfig application configuration
 type AppConfig struct {
-	Storage StorageConfig `json:"storage"`
-	Symbol  string        `json:"symbol"`
-	Period  string        `json:"period"`
+	Storage       StorageConfig  `json:"storage"`
+	Subscriptions []Subscription `json:"subscriptions"`
 }
 
 // GetStorage creates a database connection using GORM and returns a Storage instance.
 // Reads configuration from config.json.
 func GetStorage() model.Storage {
 	config := getAppConfig()
-	fmt.Printf("database: %s, symbol: %s, period: %s\n", config.Storage.Driver, config.Symbol, config.Period)
+	fmt.Printf("database driver: %s, host: %s:%d\n", config.Storage.Driver, config.Storage.Host, config.Storage.Port)
 
 	var dsn string
 	switch config.Storage.Driver {
@@ -66,14 +71,9 @@ func GetStorage() model.Storage {
 	return model.NewGormStorage(db)
 }
 
-// GetSymbol reads the symbol from config
-func GetSymbol() string {
-	return getAppConfig().Symbol
-}
-
-// GetPeriod reads the period from config
-func GetPeriod() string {
-	return getAppConfig().Period
+// GetSubscriptions reads the list of symbol/period pairs from config
+func GetSubscriptions() []Subscription {
+	return getAppConfig().Subscriptions
 }
 
 // getAppConfig reads and parses config.json
