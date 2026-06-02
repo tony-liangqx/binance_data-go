@@ -21,7 +21,11 @@ type Subscriber struct {
 
 	// Sync coordination — used when HistorySyncer is backfilling data
 	syncing bool
-	// doneCh  chan struct{} // closed when HistorySyncer completes
+
+	// buffer holds kline points that arrived via websocket while a
+	// HistorySyncer was backfilling. They are drained in SyncDone,
+	// after the syncer's data has been committed to storage.
+	buffer []*model.SpotKlinePoint
 }
 
 // NewSubscriber creates a new Subscriber instance
@@ -41,20 +45,6 @@ func (s *Subscriber) GetTimeStamp() int64 {
 	return s.timeStamp
 }
 
-// 封装成原子操作：读取、判断、改变状态
-func (s *Subscriber) IsCaughtUp(currentStart int64) (endTime int64, caughtUp bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	targetTime := s.timeStamp
-
-	// 存在边界问题：进行了+1，所以不存在”=“的情况
-	if currentStart > targetTime {
-		s.syncing = false
-		return 0, true
-	}
-	return targetTime, false
-}
-
 // setTimeStamp safely updates the timestamp (thread-safe).
 func (s *Subscriber) setTimeStamp(ts int64) {
 	s.mu.Lock()
@@ -70,13 +60,24 @@ func (s *Subscriber) isSyncing() bool {
 }
 
 // SyncDone is called by HistorySyncer when it finishes backfilling.
-// It clears the syncing flag and closes the doneCh so that the next
-// kline event can resume normal processing.
+// It clears the syncing flag, then drains any points that were buffered
+// during the sync. This ensures websocket data that arrived during backfill
+// is not lost — even if the syncer's REST fetch didn't cover it.
 func (s *Subscriber) SyncDone() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.syncing = false
+	buffer := s.buffer
+	s.buffer = nil
+	s.mu.Unlock()
+
 	fmt.Printf("[ws] %s %s history sync completed, resuming normal subscription(at %d)\n", s.symbol, s.period, s.timeStamp)
+
+	// Process buffered points in order. These points arrived via websocket
+	// while the syncer was running. Many may already be committed by the
+	// syncer — processPoint handles that by checking storage's lastTime.
+	for _, point := range buffer {
+		s.processPoint(point)
+	}
 }
 
 // Start implements the Task interface and begins websocket subscription
@@ -106,8 +107,9 @@ func (s *Subscriber) start() {
 }
 
 // handleKline processes each incoming kline event.
-// It always updates the timestamp, but only writes to the database
-// when a HistorySyncer is NOT actively backfilling.
+// It always updates the timestamp. If a HistorySyncer is actively backfilling,
+// the point is buffered and replayed after sync completes — preventing data loss
+// when the syncer's targetTime was captured before this point arrived.
 func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
 	kline := event.Kline
 
@@ -131,26 +133,44 @@ func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
 		Trades:           uint32(kline.TradeNum),
 	}
 
-	// Always track the latest websocket position, even during sync
-	// 受IsCaughtUp方法限制
+	// Always track the latest websocket position, even during sync.
+	// HistorySyncer reads this via GetTimeStamp()/IsCaughtUp() to know
+	// how far it needs to backfill.
 	s.setTimeStamp(point.StartTime)
 
-	// While HistorySyncer is running, subscriber only reads and tracks
-	// position — no database writes
+	// While HistorySyncer is running, buffer the point instead of dropping it.
+	// The syncer's targetTime is captured at each IsCaughtUp call, so a point
+	// that arrives right after that call won't be covered by the REST fetch.
+	// Buffering ensures no data loss regardless of timing.
 	if s.isSyncing() {
+		s.bufferPoint(point)
 		return
 	}
 
-	s.processPoint(point)
+	err := s.processPoint(point)
+	if err != nil {
+		// 数据无法写入，panic重启
+		panic(err)
+	}
 }
 
 // processPoint handles a closed kline point: checks gap, saves or triggers history sync.
-func (s *Subscriber) processPoint(point *model.SpotKlinePoint) {
+func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 	// TODO：查询是否导致性能问题？
 	lastTime, err := s.storage.GetLastTimeStamp(s.symbol, s.period)
 	if err != nil {
 		fmt.Printf("failed to get last timestamp: %v\n", err)
-		return
+		return err
+	}
+
+	// Point was already committed by a HistorySyncer during backfill.
+	// This happens when SyncDone drains buffered points that the syncer
+	// already wrote. Skip to avoid duplicate-key errors (unique index on
+	// symbol+period+start_time) and wasted work.
+	if lastTime > 0 && point.StartTime <= lastTime {
+		fmt.Printf("[ws] skip already synced kline: %s %s start=%d\n",
+			s.symbol, s.period, point.StartTime)
+		return nil
 	}
 
 	if lastTime > 0 {
@@ -161,11 +181,12 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) {
 			// Contiguous data, save directly
 			if err := s.storage.Commit(point); err != nil {
 				fmt.Printf("failed to commit kline: %v\n", err)
+				return err
 			} else {
 				fmt.Printf("[ws] saved kline: %s %s start=%d close=%f\n",
 					s.symbol, s.period, point.StartTime, point.Close)
 			}
-			return
+			return nil
 		}
 
 		// Gap detected: start HistorySyncer asynchronously to backfill
@@ -176,7 +197,7 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) {
 		s.mu.Lock()
 		if s.syncing {
 			s.mu.Unlock()
-			return
+			return nil
 		}
 		s.syncing = true
 		s.mu.Unlock()
@@ -189,13 +210,16 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) {
 		// Note: the trigger point is NOT committed here. The syncer
 		// will fetch it as part of the historical backfill when it
 		// syncs up to s.GetTimeStamp().
+		return nil
 	} else {
 		// No existing data, save directly
 		if err := s.storage.Commit(point); err != nil {
 			fmt.Printf("failed to commit first kline: %v\n", err)
+			return err
 		} else {
 			fmt.Printf("[ws] saved first kline: %s %s start=%d close=%f\n",
 				s.symbol, s.period, point.StartTime, point.Close)
+			return nil
 		}
 	}
 }
@@ -220,6 +244,14 @@ func parseFloat(s string) (float64, error) {
 	var v float64
 	_, err := fmt.Sscanf(s, "%f", &v)
 	return v, err
+}
+
+// bufferPoint safely appends a kline point to the buffer during sync.
+// Caller must hold no lock, or at most a read lock — this acquires the write lock.
+func (s *Subscriber) bufferPoint(point *model.SpotKlinePoint) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buffer = append(s.buffer, point)
 }
 
 // Ensure compile-time interface compliance

@@ -14,7 +14,6 @@ import (
 // allowing it to dynamically determine how far it needs to backfill.
 type TimestampProvider interface {
 	GetTimeStamp() int64
-	IsCaughtUp(currentTime int64) (endTime int64, caughtUp bool)
 	SyncDone()
 }
 
@@ -72,8 +71,8 @@ func (h *HistorySyncer) Sync() {
 	for {
 		// If the subscriber hasn't advanced past our last saved point,
 		// wait for more websocket data
-		targetTime, isCaughtUp := h.tsProvider.IsCaughtUp(currentStart)
-		if isCaughtUp {
+		targetTime := h.tsProvider.GetTimeStamp()
+		if currentStart > targetTime {
 			fmt.Printf("[history] caught up to subscriber timestamp %d\n", targetTime)
 			break
 		}
