@@ -38,12 +38,28 @@ type AggregatedKline struct {
 }
 
 // symbolAggregator accumulates points for a single symbol/period pair.
-// When the close price change from the first point to the latest point
-// exceeds 10%, the points are aggregated into one.
+// Aggregation runs incrementally — only running max/min/sum values and
+// the first/latest points are tracked, with no full data point cache.
 type symbolAggregator struct {
 	symbol string
 	period string
-	points []*model.SpotKlinePoint
+
+	// count of points added so far
+	count int
+
+	// first point — provides Open, StartTime, and first.Close for trigger check
+	firstPoint *model.SpotKlinePoint
+
+	// running aggregates (max for high, min for low, sum for volume etc.)
+	high             float64
+	low              float64
+	volume           float64
+	quoteAssetVolume float64
+	trades           uint32
+
+	// latest point values, updated on each add
+	lastClose     float64
+	lastCloseTime int64
 }
 
 // newSymbolAggregator creates a new aggregator for the given symbol/period.
@@ -51,23 +67,44 @@ func newSymbolAggregator(symbol, period string) *symbolAggregator {
 	return &symbolAggregator{
 		symbol: symbol,
 		period: period,
-		points: make([]*model.SpotKlinePoint, 0),
 	}
 }
 
-// add inserts a point into the aggregator. If the close price difference
-// between the first and the latest point exceeds 10%, the aggregated kline
-// is returned with true. Otherwise nil and false are returned.
+// add inserts a point into the aggregator and updates running aggregates
+// incrementally. If the close price difference between the first and the
+// latest point exceeds 10%, the aggregated kline is returned with true.
+// Otherwise nil and false are returned.
 func (a *symbolAggregator) add(point *model.SpotKlinePoint) (*AggregatedKline, bool) {
-	a.points = append(a.points, point)
-	if len(a.points) < 2 {
+	if a.count == 0 {
+		// First point: initialize all state
+		a.firstPoint = point
+		a.high = point.High
+		a.low = point.Low
+		a.volume = point.Volume
+		a.quoteAssetVolume = point.QuoteAssetVolume
+		a.trades = point.Trades
+		a.lastClose = point.Close
+		a.lastCloseTime = point.CloseTime
+		a.count = 1
 		return nil, false
 	}
 
-	first := a.points[0]
-	last := point
+	// Update running aggregates incrementally
+	if point.High > a.high {
+		a.high = point.High
+	}
+	if point.Low < a.low {
+		a.low = point.Low
+	}
+	a.volume += point.Volume
+	a.quoteAssetVolume += point.QuoteAssetVolume
+	a.trades += point.Trades
+	a.lastClose = point.Close
+	a.lastCloseTime = point.CloseTime
+	a.count++
 
-	change := math.Abs(last.Close-first.Close) / first.Close
+	// Check trigger: close price change > 10%
+	change := math.Abs(a.lastClose-a.firstPoint.Close) / a.firstPoint.Close
 	if change > closePriceChangeThreshold {
 		return a.aggregate(), true
 	}
@@ -75,45 +112,25 @@ func (a *symbolAggregator) add(point *model.SpotKlinePoint) (*AggregatedKline, b
 	return nil, false
 }
 
-// aggregate computes a single aggregated kline from the buffered points.
-// Field aggregation rules:
-//   - Open: value from the first data point
-//   - Close: value from the latest data point
-//   - High: max of all data points
-//   - Low: min of all data points
-//   - Volume, QuoteAssetVolume, Trades: sum of all data points
+// aggregate computes a single aggregated kline from the running state.
 func (a *symbolAggregator) aggregate() *AggregatedKline {
-	if len(a.points) == 0 {
+	if a.firstPoint == nil {
 		return nil
 	}
 
-	first := a.points[0]
-	last := a.points[len(a.points)-1]
-
-	agg := &AggregatedKline{
-		Symbol:    a.symbol,
-		Period:    a.period,
-		StartTime: first.StartTime,
-		Open:      first.Open,
-		High:      first.High,
-		Low:       first.Low,
-		Close:     last.Close,
-		CloseTime: last.CloseTime,
+	return &AggregatedKline{
+		Symbol:           a.symbol,
+		Period:           a.period,
+		StartTime:        a.firstPoint.StartTime,
+		Open:             a.firstPoint.Open,
+		High:             a.high,
+		Low:              a.low,
+		Close:            a.lastClose,
+		Volume:           a.volume,
+		QuoteAssetVolume: a.quoteAssetVolume,
+		Trades:           a.trades,
+		CloseTime:        a.lastCloseTime,
 	}
-
-	for _, p := range a.points {
-		if p.High > agg.High {
-			agg.High = p.High
-		}
-		if p.Low < agg.Low {
-			agg.Low = p.Low
-		}
-		agg.Volume += p.Volume
-		agg.QuoteAssetVolume += p.QuoteAssetVolume
-		agg.Trades += p.Trades
-	}
-
-	return agg
 }
 
 // PubSubService receives SpotKlinePoint data from Subscribers, aggregates
@@ -234,11 +251,11 @@ func (s *PubSubService) addPoint(point *model.SpotKlinePoint) (*AggregatedKline,
 	if full {
 		// Reset the aggregator for the next group
 		s.aggregators[key] = newSymbolAggregator(point.Symbol, point.Period)
-		firstClose := agg.points[0].Close
-		lastClose := agg.points[len(agg.points)-1].Close
+		firstClose := agg.firstPoint.Close
+		lastClose := agg.lastClose
 		changePct := (math.Abs(lastClose-firstClose) / firstClose) * 100
 		fmt.Printf("[pubsub] aggregated %d points: %s %s start=%d -> end=%d (close change=%.2f%%)\n",
-			len(agg.points), agg.symbol, agg.period, agg.points[0].StartTime, agg.points[len(agg.points)-1].CloseTime, changePct)
+			agg.count, agg.symbol, agg.period, agg.firstPoint.StartTime, agg.lastCloseTime, changePct)
 		return complete, nil
 	}
 
