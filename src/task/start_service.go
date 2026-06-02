@@ -27,9 +27,6 @@ const (
 
 	// wsServerAddr is the default WebSocket server address
 	wsServerAddr = ":8080"
-
-	// MQTT topic prefix for aggregated kline data (same as in pub.go)
-	wsMQTTTopicPrefix = "binance/aggregated"
 )
 
 // upgrader upgrades HTTP connections to WebSocket
@@ -173,7 +170,7 @@ func (s *WebSocketService) streamNameToTopic(streamName string) string {
 	parts := strings.SplitN(streamName, "@", 2)
 	if len(parts) < 2 {
 		// Fallback: use stream name as-is under the prefix
-		return fmt.Sprintf("%s/%s", wsMQTTTopicPrefix, streamName)
+		return fmt.Sprintf("%s/%s", mqttTopicPrefix, streamName)
 	}
 
 	symbol := strings.ToUpper(parts[0])
@@ -182,11 +179,11 @@ func (s *WebSocketService) streamNameToTopic(streamName string) string {
 	// Handle "kline_<period>" format
 	if strings.HasPrefix(rest, "kline_") {
 		period := strings.TrimPrefix(rest, "kline_")
-		return fmt.Sprintf("%s/%s/%s", wsMQTTTopicPrefix, symbol, period)
+		return fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, symbol, period)
 	}
 
 	// Fallback
-	return fmt.Sprintf("%s/%s/%s", wsMQTTTopicPrefix, symbol, rest)
+	return fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, symbol, rest)
 }
 
 // subscribeTopic subscribes to an MQTT topic and registers the client's send channel.
