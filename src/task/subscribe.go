@@ -41,6 +41,7 @@ func (s *Subscriber) GetTimeStamp() int64 {
 	return s.timeStamp
 }
 
+// 封装成原子操作：读取、判断、改变状态
 func (s *Subscriber) IsCaughtUp(currentStart int64) (endTime int64, caughtUp bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,6 +132,7 @@ func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
 	}
 
 	// Always track the latest websocket position, even during sync
+	// 受IsCaughtUp方法限制
 	s.setTimeStamp(point.StartTime)
 
 	// While HistorySyncer is running, subscriber only reads and tracks
