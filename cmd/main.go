@@ -27,6 +27,7 @@ func main() {
 
 	// Create PubSubService for MQTT aggregation and publishing
 	pubSubService := task.NewPubSubService()
+	pubSubService.SetStorage(storage)
 	go pubSubService.Start()
 
 	// Create WebSocketService for streaming data to WebSocket clients

@@ -41,6 +41,11 @@ func (s *GormStorage) Commit(point *SpotKlinePoint) error {
 	return s.db.Create(kline).Error
 }
 
+// CommitAggKline inserts an aggregated kline into the database.
+func (s *GormStorage) CommitAggKline(kline *AggBinanceSpotKline) error {
+	return s.db.Create(kline).Error
+}
+
 // GetLastTimeStamp retrieves the latest start_time for the given symbol and period.
 // Returns 0 if no records exist.
 func (s *GormStorage) GetLastTimeStamp(symbol string, period string) (int64, error) {
