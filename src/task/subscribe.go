@@ -26,6 +26,10 @@ type Subscriber struct {
 	// HistorySyncer was backfilling. They are drained in SyncDone,
 	// after the syncer's data has been committed to storage.
 	buffer []*model.SpotKlinePoint
+
+	// pointChan is an optional channel for publishing processed points
+	// to external consumers (e.g., PubSubService for MQTT aggregation).
+	pointChan chan<- *model.SpotKlinePoint
 }
 
 // NewSubscriber creates a new Subscriber instance
@@ -35,6 +39,11 @@ func NewSubscriber(storage model.Storage, symbol string, period string) *Subscri
 		symbol:  symbol,
 		period:  period,
 	}
+}
+
+// SetPointChan sets the channel for publishing processed points to external consumers.
+func (s *Subscriber) SetPointChan(ch chan<- *model.SpotKlinePoint) {
+	s.pointChan = ch
 }
 
 // GetTimeStamp returns the latest websocket timestamp (thread-safe).
@@ -186,6 +195,7 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 				fmt.Printf("[ws] saved kline: %s %s start=%d close=%f\n",
 					s.symbol, s.period, point.StartTime, point.Close)
 			}
+			s.publishPoint(point)
 			return nil
 		}
 
@@ -219,7 +229,20 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 		} else {
 			fmt.Printf("[ws] saved first kline: %s %s start=%d close=%f\n",
 				s.symbol, s.period, point.StartTime, point.Close)
-			return nil
+		}
+		s.publishPoint(point)
+		return nil
+	}
+}
+
+// publishPoint sends the point to the external channel if one is configured.
+// Sends are non-blocking to avoid slowing down the subscriber.
+func (s *Subscriber) publishPoint(point *model.SpotKlinePoint) {
+	if s.pointChan != nil {
+		select {
+		case s.pointChan <- point:
+		default:
+			// Channel full, skip to avoid blocking the subscriber
 		}
 	}
 }

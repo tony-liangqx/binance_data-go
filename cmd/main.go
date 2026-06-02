@@ -25,6 +25,14 @@ func main() {
 
 	fmt.Printf("loaded %d subscription(s):\n", len(subscriptions))
 
+	// Create PubSubService for MQTT aggregation and publishing
+	pubSubService := task.NewPubSubService()
+	go pubSubService.Start()
+
+	// Create WebSocketService for streaming data to WebSocket clients
+	wsService := task.NewWebSocketService()
+	go wsService.Start()
+
 	// Create and start a Subscriber for each symbol/period pair
 	for _, sub := range subscriptions {
 		fmt.Printf("  symbol=%s, period=%s\n", sub.Symbol, sub.Period)
@@ -40,6 +48,10 @@ func main() {
 
 		// Create and start the Subscriber in a goroutine
 		subscriber := task.NewSubscriber(storage, sub.Symbol, sub.Period)
+
+		// Wire up PubSubService to receive processed points from this subscriber
+		subscriber.SetPointChan(pubSubService.PointChan)
+
 		go subscriber.Start(lastTime)
 	}
 
