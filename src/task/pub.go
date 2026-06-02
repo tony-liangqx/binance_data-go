@@ -106,19 +106,20 @@ func (a *symbolAggregator) add(point *model.SpotKlinePoint) (*AggregatedKline, b
 	// Check trigger: close price change > 10%
 	change := math.Abs(a.lastClose-a.firstPoint.Close) / a.firstPoint.Close
 	if change > closePriceChangeThreshold {
-		return a.aggregate(), true
+		fmt.Printf("symbol %s start %f, close %f, change: %f", a.symbol, a.firstPoint.Open, a.lastClose, change)
+		return a.aggregate(point), true
 	}
 
 	return nil, false
 }
 
 // aggregate computes a single aggregated kline from the running state.
-func (a *symbolAggregator) aggregate() *AggregatedKline {
+func (a *symbolAggregator) aggregate(point *model.SpotKlinePoint) *AggregatedKline {
 	if a.firstPoint == nil {
 		return nil
 	}
 
-	return &AggregatedKline{
+	retval := &AggregatedKline{
 		Symbol:           a.symbol,
 		Period:           a.period,
 		StartTime:        a.firstPoint.StartTime,
@@ -131,6 +132,19 @@ func (a *symbolAggregator) aggregate() *AggregatedKline {
 		Trades:           a.trades,
 		CloseTime:        a.lastCloseTime,
 	}
+
+	// reset all state
+	a.firstPoint = point
+	a.high = point.High
+	a.low = point.Low
+	a.volume = point.Volume
+	a.quoteAssetVolume = point.QuoteAssetVolume
+	a.trades = point.Trades
+	a.lastClose = point.Close
+	a.lastCloseTime = point.CloseTime
+	a.count = 1
+
+	return retval
 }
 
 // PubSubService receives SpotKlinePoint data from Subscribers, aggregates
@@ -200,6 +214,7 @@ func (s *PubSubService) start() {
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		fmt.Printf("[pubsub] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
 		// Retry later in the loop
+		panic(token.Error())
 	} else {
 		s.mqttClient = client
 		fmt.Printf("[pubsub] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.clientID)
@@ -220,11 +235,7 @@ func (s *PubSubService) start() {
 			fmt.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
 		}
 
-		agg, err := s.addPoint(point)
-		if err != nil {
-			fmt.Printf("[pubsub] error aggregating point: %v\n", err)
-			continue
-		}
+		agg := s.addPoint(point)
 
 		if agg != nil {
 			s.publishAggregated(agg)
@@ -235,7 +246,7 @@ func (s *PubSubService) start() {
 
 // addPoint adds a point to the appropriate aggregator. Returns the aggregated
 // kline if the group is complete (close price change > 10%), nil otherwise.
-func (s *PubSubService) addPoint(point *model.SpotKlinePoint) (*AggregatedKline, error) {
+func (s *PubSubService) addPoint(point *model.SpotKlinePoint) *AggregatedKline {
 	key := point.Symbol + ":" + point.Period
 
 	s.mu.Lock()
@@ -256,10 +267,10 @@ func (s *PubSubService) addPoint(point *model.SpotKlinePoint) (*AggregatedKline,
 		changePct := (math.Abs(lastClose-firstClose) / firstClose) * 100
 		fmt.Printf("[pubsub] aggregated %d points: %s %s start=%d -> end=%d (close change=%.2f%%)\n",
 			agg.count, agg.symbol, agg.period, agg.firstPoint.StartTime, agg.lastCloseTime, changePct)
-		return complete, nil
+		return complete
 	}
 
-	return nil, nil
+	return nil
 }
 
 // publishAggregated publishes the aggregated kline to the MQTT broker.
