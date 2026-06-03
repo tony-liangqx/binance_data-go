@@ -26,7 +26,7 @@ const (
 	writeWait = 10 * time.Second
 
 	// wsServerAddr is the default WebSocket server address
-	wsServerAddr = ":8080"
+	wsServerAddr = ":8081"
 )
 
 // upgrader upgrades HTTP connections to WebSocket

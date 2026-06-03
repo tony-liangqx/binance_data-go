@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -10,10 +11,11 @@ import (
 )
 
 func main() {
-	server := "ws://localhost:8080"
+	server := flag.String("server", "ws://localhost:8080", "WebSocket server URL")
+	flag.Parse()
 	streams := "BTCUSDT@kline_1m/ETHUSDT@kline_1m"
 
-	u, err := url.Parse(server + "/stream?streams=" + streams)
+	u, err := url.Parse(*server + "/stream?streams=" + streams)
 	if err != nil {
 		fmt.Printf("failed to parse URL: %v\n", err)
 		os.Exit(1)
