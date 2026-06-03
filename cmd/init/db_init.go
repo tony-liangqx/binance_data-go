@@ -19,5 +19,9 @@ func main() {
 		panic(fmt.Errorf("failed to auto migrate: %w", err))
 	}
 
+	if err := db.AutoMigrate(&model.AggBinanceSpotKline{}); err != nil {
+		panic(fmt.Errorf("failed to auto migrate: %w", err))
+	}
+
 	fmt.Println("database table 'binance_spot_kline' created successfully")
 }

@@ -52,6 +52,7 @@ type topicSubscription struct {
 // to connected WebSocket clients. It supports multi-stream subscriptions
 // via the /stream?streams=<name1>/<name2>/... URL format.
 type WebSocketService struct {
+	pubSrv   *PubSubService
 	broker   string
 	addr     string
 	mqttOpts *mqtt.ClientOptions
@@ -68,12 +69,12 @@ type WebSocketService struct {
 }
 
 // NewWebSocketService creates a new WebSocketService with default settings.
-func NewWebSocketService() *WebSocketService {
-	return NewWebSocketServiceWithBroker(wsDefaultMQTTBroker, wsServerAddr)
+func NewWebSocketService(pubSrv *PubSubService) *WebSocketService {
+	return NewWebSocketServiceWithBroker(pubSrv, wsDefaultMQTTBroker, wsServerAddr)
 }
 
 // NewWebSocketServiceWithBroker creates a new WebSocketService with custom MQTT broker and server address.
-func NewWebSocketServiceWithBroker(broker, addr string) *WebSocketService {
+func NewWebSocketServiceWithBroker(pubSrv *PubSubService, broker, addr string) *WebSocketService {
 	clientID := fmt.Sprintf("binance_ws_%d", time.Now().UnixNano())
 
 	opts := mqtt.NewClientOptions()
@@ -86,6 +87,7 @@ func NewWebSocketServiceWithBroker(broker, addr string) *WebSocketService {
 	opts.SetOrderMatters(false)
 
 	return &WebSocketService{
+		pubSrv:   pubSrv,
 		broker:   broker,
 		addr:     addr,
 		mqttOpts: opts,
@@ -156,6 +158,22 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	for _, streamName := range streamNames {
 		topic := s.streamNameToTopic(streamName)
 		s.subscribeTopic(topic, client.send)
+		// 发送缓存message
+		tokens := strings.Split(topic, "/")
+		if len(tokens) != 4 {
+			continue
+		}
+		// 目前只有“1m“数据
+		point := s.pubSrv.GetLatestPoint(tokens[2], "1m")
+		buf, err := json.Marshal(point)
+		if err != nil {
+			fmt.Printf("GetLatestPoint Marshal error:%s\n", err.Error())
+			continue
+		}
+		if len(buf) == 0 {
+			continue
+		}
+		client.send <- buf
 	}
 
 	// Start read and write goroutines for this client

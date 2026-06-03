@@ -106,9 +106,11 @@ func (a *symbolAggregator) add(point *model.SpotKlinePoint) (*AggregatedKline, b
 	// Check trigger: close price change > 10%
 	change := math.Abs(a.lastClose-a.firstPoint.Close) / a.firstPoint.Close
 	if change > closePriceChangeThreshold {
-		fmt.Printf("symbol %s start %f, close %f, change: %f", a.symbol, a.firstPoint.Open, a.lastClose, change)
+		fmt.Printf("symbol %s start %f, close %f, change: %f\n", a.symbol, a.firstPoint.Open, a.lastClose, change)
 		return a.aggregate(point), true
 	}
+	// debug 信息
+	fmt.Printf("symbol %s start %f, close %f, count: %d, change: %f\n", a.symbol, a.firstPoint.Open, a.lastClose, a.count, change)
 
 	return nil, false
 }
@@ -242,6 +244,19 @@ func (s *PubSubService) start() {
 			s.saveAggregated(agg)
 		}
 	}
+}
+
+// 获取最新缓存记录
+func (s *PubSubService) GetLatestPoint(symbol, period string) model.SpotKlinePoint {
+	key := symbol + ":" + period
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agg, ok := s.aggregators[key]
+	if !ok {
+		return model.SpotKlinePoint{}
+	}
+	return *agg.firstPoint
 }
 
 // addPoint adds a point to the appropriate aggregator. Returns the aggregated

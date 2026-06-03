@@ -26,17 +26,21 @@ type HistorySyncer struct {
 	symbol     string
 	period     string
 	tsProvider TimestampProvider
+	// pointChan is an optional channel for publishing processed points
+	// to external consumers (e.g., PubSubService for MQTT aggregation).
+	pointChan chan<- *model.SpotKlinePoint
 }
 
 // NewHistorySyncer creates a new HistorySyncer instance.
 // tsProvider gives the syncer access to the Subscriber's latest websocket position.
-func NewHistorySyncer(storage model.Storage, symbol string, period string, lastTime int64, tsProvider TimestampProvider) *HistorySyncer {
+func NewHistorySyncer(storage model.Storage, symbol string, period string, lastTime int64, tsProvider TimestampProvider, pointChan chan<- *model.SpotKlinePoint) *HistorySyncer {
 	return &HistorySyncer{
 		storage:    storage,
 		symbol:     symbol,
 		period:     period,
 		timeStamp:  lastTime,
 		tsProvider: tsProvider,
+		pointChan:  pointChan,
 	}
 }
 
@@ -48,6 +52,18 @@ func (h *HistorySyncer) GetTimeStamp() int64 {
 // Start implements the Task interface
 func (h *HistorySyncer) Start(timeStamp int64) {
 	h.timeStamp = timeStamp
+}
+
+// publishPoint sends the point to the external channel if one is configured.
+// Sends are non-blocking to avoid slowing down the subscriber.
+func (h *HistorySyncer) publishPoint(point *model.SpotKlinePoint) {
+	if h.pointChan != nil {
+		select {
+		case h.pointChan <- point:
+		default:
+			// Channel full, skip to avoid blocking the subscriber
+		}
+	}
 }
 
 // Sync fetches historical klines from Binance REST API starting from the last saved record.
@@ -121,11 +137,12 @@ func (h *HistorySyncer) Sync() {
 				fmt.Printf("[history] failed to commit kline %d: %v\n", k.OpenTime, err)
 				// 数据库无法写入，需要panic
 				panic(err)
-			} else {
-				fmt.Printf("[history] saved kline: %s %s start=%d close=%s\n",
-					h.symbol, h.period, k.OpenTime, k.Close)
-				h.timeStamp = k.OpenTime
 			}
+			fmt.Printf("[history] saved kline: %s %s start=%d close=%s\n",
+				h.symbol, h.period, k.OpenTime, k.Close)
+			h.timeStamp = k.OpenTime
+			// 推送
+			h.publishPoint(point)
 		}
 
 		// Check if we've caught up to the latest subscriber timestamp

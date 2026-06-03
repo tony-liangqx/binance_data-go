@@ -215,7 +215,7 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 		// Launch syncer asynchronously — it will backfill from lastTime
 		// up to the subscriber's dynamically-advancing timestamp, then
 		// call SyncDone to hand write control back to the subscriber.
-		syncer := NewHistorySyncer(s.storage, s.symbol, s.period, lastTime, s)
+		syncer := NewHistorySyncer(s.storage, s.symbol, s.period, lastTime, s, s.pointChan)
 		go syncer.Sync()
 		// Note: the trigger point is NOT committed here. The syncer
 		// will fetch it as part of the historical backfill when it
@@ -226,10 +226,10 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 		if err := s.storage.Commit(point); err != nil {
 			fmt.Printf("failed to commit first kline: %v\n", err)
 			return err
-		} else {
-			fmt.Printf("[ws] saved first kline: %s %s start=%d close=%f\n",
-				s.symbol, s.period, point.StartTime, point.Close)
 		}
+		fmt.Printf("[ws] saved first kline: %s %s start=%d close=%f\n",
+			s.symbol, s.period, point.StartTime, point.Close)
+
 		s.publishPoint(point)
 		return nil
 	}
