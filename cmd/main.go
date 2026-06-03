@@ -51,6 +51,7 @@ func main() {
 		subscriber := task.NewSubscriber(storage, sub.Symbol, sub.Period)
 
 		// Wire up PubSubService to receive processed points from this subscriber
+		// 源数据传递到推送服务
 		subscriber.SetPointChan(pubSubService.PointChan)
 
 		go subscriber.Start(lastTime)
