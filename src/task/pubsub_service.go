@@ -242,8 +242,9 @@ type PubSubService struct {
 
 	// aggregators maps "symbol:period" -> *symbolAggregator
 	// Created on-demand when users subscribe to aggregated streams
-	aggregators map[string]*symbolAggregator
-	mu          sync.RWMutex
+	aggregators  map[string]*symbolAggregator
+	subRefCounts map[string]int // reference count per "symbol:period"
+	mu           sync.RWMutex
 
 	// mqttClient is the MQTT client for publishing
 	mqttClient mqtt.Client
@@ -277,6 +278,7 @@ func NewPubSubServiceWithBroker(broker string) *PubSubService {
 		mqttOpts:     opts,
 		PointChan:    make(chan *model.SpotKlinePoint, 1024),
 		aggregators:  make(map[string]*symbolAggregator),
+		subRefCounts: make(map[string]int),
 		latestPoints: make(map[string]*model.SpotKlinePoint),
 	}
 }
@@ -290,25 +292,63 @@ func (s *PubSubService) SetStorage(storage model.Storage) {
 // with default indicators. This is called when a user subscribes to an
 // aggregated stream (e.g. "binance/aggregated/btcusdt/5m").
 //
-// If an aggregator already exists for this (symbol, period), it is returned
-// without re-creating.
+// It maintains a reference counter for each (symbol, period). The aggregator
+// is only created on the first subscription and removed when the last
+// subscriber calls Unsubscribe.
 func (s *PubSubService) Subscribe(symbol, period string) {
 	key := symbol + ":" + period
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.aggregators[key]; ok {
-		fmt.Printf("[pubsub] aggregator already exists for %s/%s\n", symbol, period)
+	if agg, ok := s.aggregators[key]; ok {
+		s.subRefCounts[key]++
+		fmt.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
+			symbol, period, s.subRefCounts[key], len(agg.indicators))
 		return
 	}
 
+	// TODO：聚合器初始化，访问数据库构造历史数据
 	agg := newSymbolAggregator(symbol, period)
 	agg.addDefaultIndicators()
 	s.aggregators[key] = agg
+	s.subRefCounts[key] = 1
 
-	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d)\n",
+	point := s.GetLatestPoint(symbol, period)
+	agg.firstPoint = &point
+
+	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
 		symbol, period, agg.pointsPerAgg, len(agg.indicators))
+}
+
+// Unsubscribe decrements the reference counter for the given (symbol, period).
+// When the counter drops to zero or below, the aggregator and indicators are
+// removed and cleanup is performed.
+func (s *PubSubService) Unsubscribe(symbol, period string) {
+	key := symbol + ":" + period
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count, ok := s.subRefCounts[key]
+	if !ok {
+		fmt.Printf("[pubsub] unsubscribe ignored for %s/%s: no subscription record\n", symbol, period)
+		return
+	}
+
+	count--
+	if count > 0 {
+		s.subRefCounts[key] = count
+		fmt.Printf("[pubsub] unsubscribe ref-- for %s/%s (refCount=%d)\n",
+			symbol, period, count)
+		return
+	}
+
+	// Last subscriber: clean up the aggregator and its indicators
+	delete(s.aggregators, key)
+	delete(s.subRefCounts, key)
+	fmt.Printf("[pubsub] removed aggregator for %s/%s (no more subscribers)\n",
+		symbol, period)
 }
 
 // Start begins the PubSubService. It connects to MQTT and starts consuming

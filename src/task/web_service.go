@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"binance.data.sync/src/model"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gorilla/websocket"
 )
@@ -159,24 +160,10 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		topic := s.streamNameToTopic(streamName)
 		s.subscribeTopic(topic, client.send)
 
-		// Parse symbol and period from the stream name
-		// Format: "btcusdt@kline_5m" -> symbol=btcusdt, period=5m
-		parts := strings.SplitN(streamName, "@", 2)
-		if len(parts) == 2 {
-			symbol := strings.ToUpper(parts[0])
-			rest := parts[1]
-			var period string
-			if strings.HasPrefix(rest, "kline_") {
-				period = strings.TrimPrefix(rest, "kline_")
-			} else {
-				period = rest
-			}
-
-			// Create symbolAggregator for non-1m periods
-			// 1m data comes directly from the raw subscriber, not aggregation
-			if period != "1m" {
-				s.pubSrv.Subscribe(symbol, period)
-			}
+		// Parse symbol and period, and create aggregator for periods
+		// 1m data comes directly from the raw subscriber, not aggregation
+		if symbol, period, ok := parseStreamName(streamName); ok {
+			s.pubSrv.Subscribe(symbol, period)
 		}
 
 		// 发送缓存message
@@ -184,8 +171,15 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		if len(tokens) != 4 {
 			continue
 		}
-		// 最新1m数据快照
-		point := s.pubSrv.GetLatestPoint(tokens[2], "1m")
+		// 获取内存中的聚合数据
+		var point model.SpotKlinePoint
+		s.mu.RLock()
+		agg, ok := s.pubSrv.aggregators[tokens[2]+":"+tokens[3]]
+		if ok && agg.firstPoint != nil {
+			point = *agg.firstPoint
+		}
+		s.mu.RUnlock()
+
 		buf, err := json.Marshal(point)
 		if err != nil {
 			fmt.Printf("GetLatestPoint Marshal error:%s\n", err.Error())
@@ -223,6 +217,24 @@ func (s *WebSocketService) streamNameToTopic(streamName string) string {
 
 	// Fallback
 	return fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, symbol, rest)
+}
+
+// parseStreamName extracts symbol and period from a stream name.
+// Format: "btcusdt@kline_5m" -> ("BTCUSDT", "5m", true)
+// Returns ("", "", false) if the stream name cannot be parsed.
+func parseStreamName(streamName string) (symbol, period string, ok bool) {
+	parts := strings.SplitN(streamName, "@", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	symbol = strings.ToUpper(parts[0])
+	rest := parts[1]
+	if strings.HasPrefix(rest, "kline_") {
+		period = strings.TrimPrefix(rest, "kline_")
+	} else {
+		period = rest
+	}
+	return symbol, period, true
 }
 
 // subscribeTopic subscribes to an MQTT topic and registers the client's send channel.
@@ -312,10 +324,15 @@ func (s *WebSocketService) writePump(client *wsClient) {
 	defer func() {
 		ticker.Stop()
 		client.conn.Close()
-		// Clean up subscriptions
+		// Clean up MQTT topic subscriptions and aggregator references
 		for _, streamName := range client.streams {
 			topic := s.streamNameToTopic(streamName)
 			s.unsubscribeTopic(topic, client.send)
+
+			// Unsubscribe aggregator for non-1m periods
+			if symbol, period, ok := parseStreamName(streamName); ok && period != "1m" {
+				s.pubSrv.Unsubscribe(symbol, period)
+			}
 		}
 	}()
 
