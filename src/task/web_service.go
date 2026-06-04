@@ -158,12 +158,33 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	for _, streamName := range streamNames {
 		topic := s.streamNameToTopic(streamName)
 		s.subscribeTopic(topic, client.send)
+
+		// Parse symbol and period from the stream name
+		// Format: "btcusdt@kline_5m" -> symbol=btcusdt, period=5m
+		parts := strings.SplitN(streamName, "@", 2)
+		if len(parts) == 2 {
+			symbol := strings.ToUpper(parts[0])
+			rest := parts[1]
+			var period string
+			if strings.HasPrefix(rest, "kline_") {
+				period = strings.TrimPrefix(rest, "kline_")
+			} else {
+				period = rest
+			}
+
+			// Create symbolAggregator for non-1m periods
+			// 1m data comes directly from the raw subscriber, not aggregation
+			if period != "1m" {
+				s.pubSrv.Subscribe(symbol, period)
+			}
+		}
+
 		// 发送缓存message
 		tokens := strings.Split(topic, "/")
 		if len(tokens) != 4 {
 			continue
 		}
-		// 目前只有“1m“数据
+		// 最新1m数据快照
 		point := s.pubSrv.GetLatestPoint(tokens[2], "1m")
 		buf, err := json.Marshal(point)
 		if err != nil {
