@@ -7,12 +7,17 @@
 ```
 Binance WS → Subscriber → DB（Symbol的`1m`数据）
                        ↓
-                       → PubSubService (ch) → aggregate points → MQTT (mosquitto)
+                       → PubSubService → aggregate points → MQTT (mosquitto)
                                                                    ↓
                                                           WebSocketService (MQTT sub)
                                                                    ↓
                                                                WS Clients
 ```
+`PubSubService`为数据管理中枢。
+
+1. 内存缓存的数据用于实时“聚合”和计算“指标”。
+2. MQTT用于多路订阅通道数据复制。
+
 
 ## 历史数据部分
 历史数据请求分：
