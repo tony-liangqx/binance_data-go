@@ -1,8 +1,5 @@
 # binance_data-go
 
-# 流程图
-![说明文字](./docs/流程图.png)
-
 # 订阅服务`Data Flow`
 ```
 Binance WS → Subscriber → DB（Symbol的`1m`数据）
@@ -17,6 +14,10 @@ Binance WS → Subscriber → DB（Symbol的`1m`数据）
 
 1. 内存缓存的数据用于实时“聚合”和计算“指标”。
 2. MQTT用于多路订阅通道数据复制。
+
+# 数据同步流程图
+`Subscriber`负责源数据同步
+![说明文字](./docs/流程图.png)
 
 
 ## 历史数据部分
