@@ -164,10 +164,14 @@ func (a *symbolAggregator) finalize(point *model.SpotKlinePoint) *AggregatedKlin
 	}
 
 	// Run all indicators on the aggregated kline
+	// debug
+	names := make([]string, 0, len(a.indicators))
 	for _, ind := range a.indicators {
+		names = append(names, ind.Name())
 		ind.Calculate(agg)
 		agg.Indicators[ind.Name()] = ind.GetValue()
 	}
+	fmt.Printf("debug: indicators: %v\n", names)
 
 	// Store as the "previous data point" for context in the next cycle
 	a.previousAggKline = agg
@@ -290,7 +294,7 @@ func (s *PubSubService) SetStorage(storage model.Storage) {
 
 // Subscribe creates a symbolAggregator for the given (symbol, period) pair
 // with default indicators. This is called when a user subscribes to an
-// aggregated stream (e.g. "binance/aggregated/btcusdt/5m").
+// aggregated stream (e.g. "BTCUSDT@kline_1m/ETHUSDT@kline_1m").
 //
 // It maintains a reference counter for each (symbol, period). The aggregator
 // is only created on the first subscription and removed when the last
@@ -432,6 +436,7 @@ func (s *PubSubService) addPoint(point *model.SpotKlinePoint) []*AggregatedKline
 	var results []*AggregatedKline
 
 	for key, agg := range s.aggregators {
+		fmt.Printf("debug: aggregators: %v\n", key)
 		// Only route points that match this aggregator's symbol
 		if agg.symbol != point.Symbol {
 			continue

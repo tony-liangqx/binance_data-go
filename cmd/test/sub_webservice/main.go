@@ -13,7 +13,7 @@ import (
 func main() {
 	server := flag.String("server", "ws://localhost:8080", "WebSocket server URL")
 	flag.Parse()
-	streams := "BTCUSDT@kline_1m/ETHUSDT@kline_1m"
+	streams := "BTCUSDT@kline_1m/ETHUSDT@kline_5m"
 
 	u, err := url.Parse(*server + "/stream?streams=" + streams)
 	if err != nil {

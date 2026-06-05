@@ -161,10 +161,12 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		s.subscribeTopic(topic, client.send)
 
 		// Parse symbol and period, and create aggregator for periods
-		// 1m data comes directly from the raw subscriber, not aggregation
-		if symbol, period, ok := parseStreamName(streamName); ok {
-			s.pubSrv.Subscribe(symbol, period)
+		symbol, period, ok := parseStreamName(streamName)
+		if !ok {
+			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
+			continue
 		}
+		s.pubSrv.Subscribe(symbol, period)
 
 		// 发送缓存message
 		tokens := strings.Split(topic, "/")
