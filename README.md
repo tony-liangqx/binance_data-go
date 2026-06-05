@@ -64,9 +64,7 @@ Binance WS → Subscriber → DB（Symbol的`1m`数据）
     "open": 65200.5, "high": 65350.0, "low": 65180.0, "close": 65300.0, "volume": 120.5,
     "indicators": {
       "ma5": 65220.1,
-      "macd": {"dif": 12.5, "dea": 10.2, "hist": 2.3},
-      "rsi": 58.4,
-      "kdj": {"k": 62.1, "d": 58.0, "j": 70.3}
+      "volume_density": 1087.67
     }
   }
 ```
