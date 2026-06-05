@@ -177,8 +177,8 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		var point model.SpotKlinePoint
 		s.mu.RLock()
 		agg, ok := s.pubSrv.aggregators[tokens[2]+":"+tokens[3]]
-		if ok && agg.firstPoint != nil {
-			point = *agg.firstPoint
+		if ok && agg.FirstPoint() != nil {
+			point = *agg.FirstPoint()
 		}
 		s.mu.RUnlock()
 

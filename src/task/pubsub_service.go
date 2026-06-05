@@ -90,8 +90,8 @@ func newSymbolAggregator(symbol, period string) *symbolAggregator {
 	}
 }
 
-// addDefaultIndicators creates and cold-starts the default set of indicators.
-func (a *symbolAggregator) addDefaultIndicators() {
+// AddDefaultIndicators creates and cold-starts the default set of indicators.
+func (a *symbolAggregator) AddDefaultIndicators() {
 	// SMA as the default indicator
 	sma := NewSMAIndicator(a.period, defaultSMAWindow)
 	sma.ColdStart(a.symbol, a.period)
@@ -99,11 +99,29 @@ func (a *symbolAggregator) addDefaultIndicators() {
 	fmt.Printf("[aggregator] added default indicators for %s/%s\n", a.symbol, a.period)
 }
 
-// add inserts a 1m point into the aggregator. When the required number
+// Symbol returns the trading symbol this aggregator tracks.
+func (a *symbolAggregator) Symbol() string { return a.symbol }
+
+// Period returns the aggregation period.
+func (a *symbolAggregator) Period() string { return a.period }
+
+// PointsPerAgg returns how many 1m points make one aggregated kline.
+func (a *symbolAggregator) PointsPerAgg() int { return a.pointsPerAgg }
+
+// SetFirstPoint sets the first point of the current aggregation window.
+func (a *symbolAggregator) SetFirstPoint(point *model.SpotKlinePoint) { a.firstPoint = point }
+
+// FirstPoint returns the first point of the current window, or nil.
+func (a *symbolAggregator) FirstPoint() *model.SpotKlinePoint { return a.firstPoint }
+
+// Indicators returns the list of indicators attached to this aggregator.
+func (a *symbolAggregator) Indicators() []IIndicator { return a.indicators }
+
+// Add inserts a 1m point into the aggregator. When the required number
 // of points has been accumulated, it produces an aggregated kline, runs
 // all indicators, and returns the result. Returns nil if more points are
 // needed to complete the current window.
-func (a *symbolAggregator) add(point *model.SpotKlinePoint) *AggregatedKline {
+func (a *symbolAggregator) Add(point *model.SpotKlinePoint) *AggregatedKline {
 	point.Period = a.period
 	if a.count == 0 {
 		// First point of a new window: initialize all state
@@ -246,9 +264,9 @@ type PubSubService struct {
 	// storage persists aggregated kline data to the database
 	storage model.Storage
 
-	// aggregators maps "symbol:period" -> *symbolAggregator
+	// aggregators maps "symbol:period" -> ISymbolAggregator
 	// Created on-demand when users subscribe to aggregated streams
-	aggregators  map[string]*symbolAggregator
+	aggregators  map[string]ISymbolAggregator
 	subRefCounts map[string]int // reference count per "symbol:period"
 	mu           sync.RWMutex
 
@@ -283,7 +301,7 @@ func NewPubSubServiceWithBroker(broker string) *PubSubService {
 		clientID:     clientID,
 		mqttOpts:     opts,
 		PointChan:    make(chan *model.SpotKlinePoint, 1024),
-		aggregators:  make(map[string]*symbolAggregator),
+		aggregators:  make(map[string]ISymbolAggregator),
 		subRefCounts: make(map[string]int),
 		latestPoints: make(map[string]*model.SpotKlinePoint),
 	}
@@ -310,22 +328,22 @@ func (s *PubSubService) Subscribe(symbol, period string) {
 	if agg, ok := s.aggregators[key]; ok {
 		s.subRefCounts[key]++
 		fmt.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
-			symbol, period, s.subRefCounts[key], len(agg.indicators))
+			symbol, period, s.subRefCounts[key], len(agg.Indicators()))
 		return
 	}
 
 	// TODO：聚合器初始化，访问数据库构造历史数据
 	agg := newSymbolAggregator(symbol, period)
-	agg.addDefaultIndicators()
+	agg.AddDefaultIndicators()
 	s.aggregators[key] = agg
 	s.subRefCounts[key] = 1
 
 	point := s.GetLatestPoint(symbol, period)
 	point.Period = period
-	agg.firstPoint = &point
+	agg.SetFirstPoint(&point)
 
 	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
-		symbol, period, agg.pointsPerAgg, len(agg.indicators))
+		symbol, period, agg.PointsPerAgg(), len(agg.Indicators()))
 }
 
 // Unsubscribe decrements the reference counter for the given (symbol, period).
@@ -440,15 +458,15 @@ func (s *PubSubService) addPoint(point *model.SpotKlinePoint) []*AggregatedKline
 	for key, agg := range s.aggregators {
 		fmt.Printf("debug: aggregators: %v\n", key)
 		// Only route points that match this aggregator's symbol
-		if agg.symbol != point.Symbol {
+		if agg.Symbol() != point.Symbol {
 			continue
 		}
 		_ = key
 
-		complete := agg.add(point)
+		complete := agg.Add(point)
 		if complete != nil {
 			fmt.Printf("[pubsub] aggregated %s/%s: %d points, start=%d -> end=%d\n",
-				agg.symbol, agg.period, agg.pointsPerAgg,
+				agg.Symbol(), agg.Period(), agg.PointsPerAgg(),
 				complete.StartTime, complete.CloseTime)
 
 			// Log indicator values
