@@ -63,11 +63,14 @@ func GetStorage() model.Storage {
 	}
 
 	// Configure connection pool
+	// Set MaxIdleConns to 0 to avoid reusing connections that may be in a bad protocol state.
+	// ClickHouse native protocol (clickhouse-go/v2) can leave connections in an unexpected
+	// state after a failed query, causing "Unexpected packet Query received from client" errors.
 	sqlDB, err := db.DB()
 	if err != nil {
 		panic(fmt.Errorf("failed to get underlying DB: %w", err))
 	}
-	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxIdleConns(0)
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
