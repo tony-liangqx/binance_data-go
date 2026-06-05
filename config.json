@@ -1,10 +1,10 @@
 {
   "storage": {
-    "driver": "mysql",
+    "driver": "clickhouse",
     "host": "127.0.0.1",
-    "port": 3306,
-    "username": "root",
-    "password": "password",
+    "port": 9000,
+    "username": "default",
+    "password": "",
     "database": "binance_data"
   },
   "subscriptions": [

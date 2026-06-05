@@ -8,7 +8,7 @@ import (
 
 	"binance.data.sync/src/model"
 
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
 )
 
@@ -34,27 +34,30 @@ type AppConfig struct {
 	Subscriptions []Subscription `json:"subscriptions"`
 }
 
-// GetStorage creates a database connection using GORM and returns a Storage instance.
+// GetStorage creates a database connection using GORM (ClickHouse) and returns a Storage instance.
 // Reads configuration from config.json.
 func GetStorage() model.Storage {
 	config := getAppConfig()
 	fmt.Printf("database driver: %s, host: %s:%d\n", config.Storage.Driver, config.Storage.Host, config.Storage.Port)
 
-	var dsn string
+	var dialector gorm.Dialector
 	switch config.Storage.Driver {
-	case "mysql":
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	case "clickhouse":
+		dsn := fmt.Sprintf("clickhouse://%s:%s@%s:%d/%s?dial_timeout=10s&read_timeout=20s",
 			config.Storage.Username,
 			config.Storage.Password,
 			config.Storage.Host,
 			config.Storage.Port,
 			config.Storage.Database,
 		)
+		dialector = clickhouse.Open(dsn)
 	default:
 		panic(fmt.Sprintf("unsupported database driver: %s", config.Storage.Driver))
 	}
 
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(dialector, &gorm.Config{
+		SkipDefaultTransaction: true,
+	})
 	if err != nil {
 		panic(fmt.Errorf("failed to connect database: %w", err))
 	}

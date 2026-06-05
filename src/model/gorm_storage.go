@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"time"
 
 	"gorm.io/gorm"
 )
@@ -28,7 +27,7 @@ func (s *GormStorage) Commit(point *SpotKlinePoint) error {
 		Symbol:           point.Symbol,
 		Period:           point.Period,
 		StartTime:        point.StartTime,
-		DateTime:         time.UnixMilli(point.DateTime),
+		DateTime:         point.DateTime,
 		Open:             point.Open,
 		High:             point.High,
 		Low:              point.Low,
