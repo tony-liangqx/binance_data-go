@@ -31,6 +31,18 @@ Binance WS → Subscriber → DB（Symbol的`1m`数据）
 1. 聚合数据（symbol, period）的"订阅"都会创建`symbolAggregator`对象，聚合算法由此对象负责。
 2. 聚合数据（symbol, period）的"指标"创建时需要“冷启动”数据集（触发数据库请求）,随后的滑动计算和结果存放由此对象负责
 
+不同的`Aggregator`类型有不同的聚合方式
+
+不同的`Indicator`类型有不同的指标算法
+
+已有的`Aggregator`类型：
+- `symbolAggregator`：基于Kline数据的聚合
+- `priceChangeAggregator`：基于价格变动的聚合
+
+已有的`Indicator`类型：
+- `SMAIndicator`：简单移动平均
+- `VolumeDensityIndicator`：成交量密度
+
 ## 聚合数据过程
 `symbolAggregator`为聚合数据（symbol, period）对象，记录了“上一个数据点”和需要的“指标”引用（数组）。
 
