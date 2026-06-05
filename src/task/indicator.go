@@ -100,10 +100,6 @@ type VolumeDensityIndicator struct {
 	name   string
 	period string
 
-	// cumulative running totals
-	totalVolume float64
-	totalCount  int
-
 	// current ratio value
 	current float64
 }
@@ -135,17 +131,14 @@ func (v *VolumeDensityIndicator) ColdStart(symbol, period string) {
 
 // Calculate updates the cumulative volume / count ratio with a new aggregated kline.
 func (v *VolumeDensityIndicator) Calculate(kline *AggregatedKline) {
-	v.totalVolume += kline.Volume
-	v.totalCount += kline.Count
-
-	if v.totalCount > 0 {
-		v.current = v.totalVolume / float64(v.totalCount)
+	if kline.Count > 0 {
+		v.current = kline.Volume / float64(kline.Count)
 	} else {
 		v.current = 0
 	}
 
 	fmt.Printf("[indicator] VolumeDensity calculated for %s/%s start=%d: value=%.4f (totalVolume=%.2f, totalCount=%d)\n",
-		kline.Symbol, kline.Period, kline.StartTime, v.current, v.totalVolume, v.totalCount)
+		kline.Symbol, kline.Period, kline.StartTime, v.current, kline.Volume, kline.Count)
 }
 
 // GetValue returns the current volume_density value.
