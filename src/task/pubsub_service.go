@@ -1,6 +1,7 @@
 package task
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -103,6 +104,7 @@ func (a *symbolAggregator) addDefaultIndicators() {
 // all indicators, and returns the result. Returns nil if more points are
 // needed to complete the current window.
 func (a *symbolAggregator) add(point *model.SpotKlinePoint) *AggregatedKline {
+	point.Period = a.period
 	if a.count == 0 {
 		// First point of a new window: initialize all state
 		a.firstPoint = point
@@ -319,6 +321,7 @@ func (s *PubSubService) Subscribe(symbol, period string) {
 	s.subRefCounts[key] = 1
 
 	point := s.GetLatestPoint(symbol, period)
+	point.Period = period
 	agg.firstPoint = &point
 
 	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
@@ -394,7 +397,6 @@ func (s *PubSubService) start() {
 		aggs := s.addPoint(point)
 		for _, agg := range aggs {
 			s.publishAggregated(agg)
-			// s.saveAggregated(agg)
 		}
 	}
 }
@@ -464,12 +466,11 @@ func (s *PubSubService) addPoint(point *model.SpotKlinePoint) []*AggregatedKline
 // publishAggregated publishes the aggregated kline to the MQTT broker.
 func (s *PubSubService) publishAggregated(agg *AggregatedKline) {
 	topic := fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, agg.Symbol, agg.Period)
-	payload := fmt.Sprintf(
-		`{"symbol":"%s","period":"%s","start_time":%d,"open":%f,"high":%f,"low":%f,"close":%f,"volume":%f,"quote_asset_volume":%f,"trades":%d,"close_time":%d}`,
-		agg.Symbol, agg.Period, agg.StartTime,
-		agg.Open, agg.High, agg.Low, agg.Close,
-		agg.Volume, agg.QuoteAssetVolume, agg.Trades, agg.CloseTime,
-	)
+	payload, err := json.Marshal(agg)
+	if err != nil {
+		fmt.Printf("publishAggregated Marshal error: %s\n", err.Error())
+		return
+	}
 
 	token := s.mqttClient.Publish(topic, 1, false, payload)
 	token.Wait()
@@ -477,35 +478,6 @@ func (s *PubSubService) publishAggregated(agg *AggregatedKline) {
 		fmt.Printf("[pubsub] failed to publish aggregated kline: %v\n", token.Error())
 	} else {
 		fmt.Printf("[pubsub] published aggregated kline: %s %s start=%d\n",
-			agg.Symbol, agg.Period, agg.StartTime)
-	}
-}
-
-// saveAggregated writes the aggregated kline to the AggBinanceSpotKline table.
-func (s *PubSubService) saveAggregated(agg *AggregatedKline) {
-	if s.storage == nil {
-		return
-	}
-
-	kline := &model.AggBinanceSpotKline{
-		Symbol:           agg.Symbol,
-		Period:           agg.Period,
-		StartTime:        agg.StartTime,
-		DateTime:         time.UnixMilli(agg.StartTime),
-		Open:             agg.Open,
-		High:             agg.High,
-		Low:              agg.Low,
-		Close:            agg.Close,
-		Volume:           agg.Volume,
-		CloseTime:        agg.CloseTime,
-		QuoteAssetVolume: agg.QuoteAssetVolume,
-		Trades:           agg.Trades,
-	}
-
-	if err := s.storage.CommitAggKline(kline); err != nil {
-		fmt.Printf("[pubsub] failed to save aggregated kline: %v\n", err)
-	} else {
-		fmt.Printf("[pubsub] saved aggregated kline: %s %s start=%d\n",
 			agg.Symbol, agg.Period, agg.StartTime)
 	}
 }
