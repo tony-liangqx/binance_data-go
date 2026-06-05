@@ -37,6 +37,7 @@ type AggregatedKline struct {
 	QuoteAssetVolume float64        `json:"quote_asset_volume"`
 	Trades           uint32         `json:"trades"`
 	CloseTime        int64          `json:"close_time"`
+	Count            int            `json:"count"`
 	Indicators       map[string]any `json:"indicators,omitempty"`
 }
 
@@ -126,7 +127,13 @@ func (s *PubSubService) Subscribe(symbol, period string) {
 	}
 
 	// TODO：聚合器初始化，访问数据库构造历史数据
-	agg := newSymbolAggregator(symbol, period)
+	var agg ISymbolAggregator
+	switch period {
+	case "vd":
+		agg = newPriceChangeAggregator(symbol, period)
+	default:
+		agg = newSymbolAggregator(symbol, period)
+	}
 	agg.AddDefaultIndicators()
 	s.aggregators[key] = agg
 	s.subRefCounts[key] = 1

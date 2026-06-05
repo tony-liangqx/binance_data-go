@@ -93,5 +93,66 @@ func (s *SMAIndicator) GetValue() float64 {
 	return s.current
 }
 
-// compile-time interface check
+// VolumeDensityIndicator calculates the cumulative volume / count ratio
+// across all aggregated klines processed by a priceChangeAggregator.
+// The value represents the average volume per 1m point in the aggregation window.
+type VolumeDensityIndicator struct {
+	name   string
+	period string
+
+	// cumulative running totals
+	totalVolume float64
+	totalCount  int
+
+	// current ratio value
+	current float64
+}
+
+// NewVolumeDensityIndicator creates a new volume_density indicator.
+func NewVolumeDensityIndicator(period string) *VolumeDensityIndicator {
+	return &VolumeDensityIndicator{
+		name:   "volume_density",
+		period: period,
+	}
+}
+
+// Name returns the indicator name.
+func (v *VolumeDensityIndicator) Name() string {
+	return v.name
+}
+
+// ColdStart initializes the indicator with historical data.
+// For now this is a no-op placeholder; in production it would fetch
+// historical aggregated klines from the database to pre-populate the
+// cumulative totals.
+func (v *VolumeDensityIndicator) ColdStart(symbol, period string) {
+	// TODO: load historical aggregated klines from DB and pre-populate
+	// totalVolume / totalCount
+	v.current = 0
+	fmt.Printf("[indicator] VolumeDensity cold start for %s/%s: initial value=%.4f\n",
+		symbol, period, v.current)
+}
+
+// Calculate updates the cumulative volume / count ratio with a new aggregated kline.
+func (v *VolumeDensityIndicator) Calculate(kline *AggregatedKline) {
+	v.totalVolume += kline.Volume
+	v.totalCount += kline.Count
+
+	if v.totalCount > 0 {
+		v.current = v.totalVolume / float64(v.totalCount)
+	} else {
+		v.current = 0
+	}
+
+	fmt.Printf("[indicator] VolumeDensity calculated for %s/%s start=%d: value=%.4f (totalVolume=%.2f, totalCount=%d)\n",
+		kline.Symbol, kline.Period, kline.StartTime, v.current, v.totalVolume, v.totalCount)
+}
+
+// GetValue returns the current volume_density value.
+func (v *VolumeDensityIndicator) GetValue() float64 {
+	return v.current
+}
+
+// compile-time interface checks
 var _ IIndicator = (*SMAIndicator)(nil)
+var _ IIndicator = (*VolumeDensityIndicator)(nil)

@@ -146,6 +146,7 @@ func (a *symbolAggregator) finalize(point *model.SpotKlinePoint) *AggregatedKlin
 		QuoteAssetVolume: a.quoteAssetVolume,
 		Trades:           a.trades,
 		CloseTime:        a.lastCloseTime,
+		Count:            a.count,
 		Indicators:       make(map[string]any),
 	}
 
