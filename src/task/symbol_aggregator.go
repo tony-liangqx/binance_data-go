@@ -37,10 +37,6 @@ type symbolAggregator struct {
 	lastClose     float64
 	lastCloseTime int64
 
-	// previous aggregated kline ("上一个数据点")
-	// Used as context for the next aggregation cycle
-	previousAggKline *model.AggregatedKline
-
 	// indicators to calculate on each completed aggregated kline
 	indicators []IIndicator
 }
@@ -159,9 +155,6 @@ func (a *symbolAggregator) finalize(point *model.AggregatedKline) *model.Aggrega
 		agg.Indicators[ind.Name()] = ind.GetValue()
 	}
 	fmt.Printf("debug: indicators: %v\n", names)
-
-	// Store as the "previous data point" for context in the next cycle
-	a.previousAggKline = agg
 
 	// Reset window state, using the current point as the start of the next window
 	a.firstPoint = point
