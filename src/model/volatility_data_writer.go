@@ -25,7 +25,7 @@ type VolatilityDataWriter struct {
 	storage Storage
 
 	// previous aggregated kline ("上一个数据点")
-	prevAggPoint *AggBinanceSpotKline
+	firstPoint *AggBinanceSpotKline
 }
 
 // NewVolatilityDataWriter creates a new price - change - driven aggregator for
@@ -40,10 +40,10 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 		fmt.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
 	}
 	return &VolatilityDataWriter{
-		symbol:       symbol,
-		volatility:   volatility,
-		storage:      storage,
-		prevAggPoint: lastPoint,
+		symbol:     symbol,
+		volatility: volatility,
+		storage:    storage,
+		firstPoint: lastPoint,
 	}
 }
 
@@ -57,9 +57,9 @@ func (a *VolatilityDataWriter) Volatility() string { return strconv.Itoa(int(a.v
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
 func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, error) {
-	if a.prevAggPoint == nil {
+	if a.firstPoint == nil {
 		// First point of a new window: initialize all state
-		a.prevAggPoint = &AggBinanceSpotKline{
+		a.firstPoint = &AggBinanceSpotKline{
 			Symbol:           point.Symbol,
 			Period:           point.Period,
 			StartTime:        point.StartTime,
@@ -73,10 +73,10 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 			QuoteAssetVolume: point.QuoteAssetVolume,
 			Trades:           point.Trades,
 		}
-		return a.finalize(a.prevAggPoint)
+		return a.finalize(a.firstPoint)
 	}
 
-	changePct := (math.Abs(a.prevAggPoint.Close-point.Close) / point.Close) * 100
+	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
 
 	if changePct > a.volatility {
 		point := &AggBinanceSpotKline{
@@ -102,7 +102,7 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 
 // finalize builds the aggregated kline, resets the window, and runs indicators.
 func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*AggregatedKline, error) {
-	if a.prevAggPoint == nil {
+	if a.firstPoint == nil {
 		return nil, nil
 	}
 
@@ -129,8 +129,8 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*Aggregated
 	}
 	fmt.Printf("[volatility_data_writer] aggregated %s/%s: start=%d -> end=%d, changePct=%.4f%%\n",
 		a.symbol, a.Volatility(), agg.StartTime, agg.CloseTime,
-		(math.Abs(a.prevAggPoint.Close-point.Close)/point.Close)*100)
-	a.prevAggPoint = &AggBinanceSpotKline{
+		(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
+	a.firstPoint = &AggBinanceSpotKline{
 		Symbol:           point.Symbol,
 		Period:           point.Period,
 		Volatility:       a.Volatility(),
