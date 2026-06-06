@@ -13,7 +13,7 @@ type ISymbolAggregator interface {
 	// Add inserts a 1m point into the aggregator. When the aggregation window
 	// is complete, it returns the aggregated kline. Returns nil if more points
 	// are needed to complete the window.
-	Add(point *model.AggregatedKline) *AggregatedKline
+	Add(point *model.AggregatedKline) *model.AggregatedKline
 
 	// Symbol returns the trading symbol this aggregator tracks.
 	Symbol() string
@@ -45,6 +45,6 @@ type ISymbolAggregator interface {
 type IIndicator interface {
 	Name() string
 	ColdStart(symbol, period string)
-	Calculate(kline *AggregatedKline)
+	Calculate(kline *model.AggregatedKline)
 	GetValue() float64
 }

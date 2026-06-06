@@ -24,25 +24,6 @@ const (
 	defaultSMAWindow = 14
 )
 
-// AggregatedKline represents a single aggregated kline point produced
-// by aggregating multiple 1m klines over a user-specified period.
-type AggregatedKline struct {
-	Symbol           string         `json:"symbol"`
-	Period           string         `json:"period"`
-	Volatility       string         `json:"volatility"`
-	StartTime        int64          `json:"start_time"`
-	Open             float64        `json:"open"`
-	High             float64        `json:"high"`
-	Low              float64        `json:"low"`
-	Close            float64        `json:"close"`
-	Volume           float64        `json:"volume"`
-	QuoteAssetVolume float64        `json:"quote_asset_volume"`
-	Trades           uint32         `json:"trades"`
-	CloseTime        int64          `json:"close_time"`
-	Count            int            `json:"count"`
-	Indicators       map[string]any `json:"indicators,omitempty"`
-}
-
 // PubSubService receives SpotKlinePoint data, routes it to per-subscription
 // symbolAggregators, publishes aggregated results to MQTT, and runs
 // indicator calculations.
@@ -262,11 +243,11 @@ func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.Aggreg
 
 // addPoint feeds a 1m point to all aggregators that match the point's symbol.
 // Returns any aggregated klines that were completed by this point.
-func (s *PubSubService) addPoint(point *model.AggregatedKline) []*AggregatedKline {
+func (s *PubSubService) addPoint(point *model.AggregatedKline) []*model.AggregatedKline {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var results []*AggregatedKline
+	var results []*model.AggregatedKline
 
 	for key, agg := range s.aggregators {
 		fmt.Printf("debug: aggregators: %v\n", key)
@@ -295,7 +276,7 @@ func (s *PubSubService) addPoint(point *model.AggregatedKline) []*AggregatedKlin
 }
 
 // publishAggregated publishes the aggregated kline to the MQTT broker.
-func (s *PubSubService) publishAggregated(agg *AggregatedKline) {
+func (s *PubSubService) publishAggregated(agg *model.AggregatedKline) {
 	var topic string
 	switch agg.Volatility {
 	case "":

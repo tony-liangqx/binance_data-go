@@ -47,7 +47,7 @@ type volatilityAggregator struct {
 	lastCloseTime int64
 
 	// previous aggregated kline ("上一个数据点")
-	previousAggKline *AggregatedKline
+	previousAggKline *model.AggregatedKline
 
 	// indicators to calculate on each completed aggregated kline
 	indicators []IIndicator
@@ -111,7 +111,7 @@ func (a *volatilityAggregator) AddDefaultIndicators() {
 // Add inserts a 1m point into the aggregator. When the price change percentage
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
-func (a *volatilityAggregator) Add(point *model.AggregatedKline) *AggregatedKline {
+func (a *volatilityAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
 	if a.firstPoint == nil || a.count == 0 {
 		// First point of a new window: initialize all state
 		a.firstPoint = point
@@ -163,12 +163,12 @@ func (a *volatilityAggregator) Add(point *model.AggregatedKline) *AggregatedKlin
 }
 
 // finalize builds the aggregated kline, resets the window, and runs indicators.
-func (a *volatilityAggregator) finalize(point *model.AggregatedKline) *AggregatedKline {
+func (a *volatilityAggregator) finalize(point *model.AggregatedKline) *model.AggregatedKline {
 	if a.firstPoint == nil {
 		return nil
 	}
 
-	agg := &AggregatedKline{
+	agg := &model.AggregatedKline{
 		Symbol:           a.symbol,
 		Period:           a.period,
 		StartTime:        a.firstPoint.StartTime,

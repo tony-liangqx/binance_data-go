@@ -39,7 +39,7 @@ type symbolAggregator struct {
 
 	// previous aggregated kline ("上一个数据点")
 	// Used as context for the next aggregation cycle
-	previousAggKline *AggregatedKline
+	previousAggKline *model.AggregatedKline
 
 	// indicators to calculate on each completed aggregated kline
 	indicators []IIndicator
@@ -87,7 +87,7 @@ func (a *symbolAggregator) Indicators() []IIndicator { return a.indicators }
 // of points has been accumulated, it produces an aggregated kline, runs
 // all indicators, and returns the result. Returns nil if more points are
 // needed to complete the current window.
-func (a *symbolAggregator) Add(point *model.AggregatedKline) *AggregatedKline {
+func (a *symbolAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
 	point.Period = a.period
 	if a.count == 0 {
 		// First point of a new window: initialize all state
@@ -129,12 +129,12 @@ func (a *symbolAggregator) Add(point *model.AggregatedKline) *AggregatedKline {
 }
 
 // finalize builds the aggregated kline, resets the window, runs indicators.
-func (a *symbolAggregator) finalize(point *model.AggregatedKline) *AggregatedKline {
+func (a *symbolAggregator) finalize(point *model.AggregatedKline) *model.AggregatedKline {
 	if a.firstPoint == nil {
 		return nil
 	}
 
-	agg := &AggregatedKline{
+	agg := &model.AggregatedKline{
 		Symbol:           a.symbol,
 		Period:           a.period,
 		StartTime:        a.firstPoint.StartTime,
