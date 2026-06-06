@@ -141,6 +141,41 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 
 	fmt.Printf("[ws-server] new connection request: streams=%v\n", streamNames)
 
+	// 检查参数正确性
+	symbols := make([]string, 0, len(streamNames))
+	for _, streamName := range streamNames {
+		// Parse symbol and period, and create aggregator for periods
+		symbol, kinde, period, ok := parseStreamName(streamName)
+		if !ok {
+			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		symbols = append(symbols, symbol)
+		switch kinde {
+		case "volatility":
+			switch period {
+			case "10", "20", "30", "5":
+				continue
+			default:
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		case "kline":
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	}
+
+	// TODO: 只允许列表内的
+	// for _, symbol := range symbols {
+	// 	if !contains(symbol, streamNames) {
+	// 		w.WriteHeader(http.StatusBadRequest)
+	// 		return
+	// 	}
+	// }
+
 	// Upgrade HTTP to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -161,12 +196,12 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		s.subscribeTopic(topic, client.send)
 
 		// Parse symbol and period, and create aggregator for periods
-		symbol, period, ok := parseStreamName(streamName)
+		symbol, kind, period, ok := parseStreamName(streamName)
 		if !ok {
 			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
 			continue
 		}
-		s.pubSrv.Subscribe(symbol, period)
+		s.pubSrv.Subscribe(symbol, kind, period)
 
 		// 发送缓存message
 		tokens := strings.Split(topic, "/")
@@ -174,7 +209,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		// 获取内存中的聚合数据
-		var point model.SpotKlinePoint
+		var point model.AggregatedKline
 		s.mu.RLock()
 		agg, ok := s.pubSrv.aggregators[tokens[2]+":"+tokens[3]]
 		if ok && agg.FirstPoint() != nil {
@@ -200,6 +235,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 
 // streamNameToTopic converts a stream name to an MQTT topic.
 // Example: "btcusdt@kline_1m" -> "binance/aggregated/btcusdt/1m"
+// Example: "btcusdt@volatility_10" -> "binance/volatility/btcusdt/10"
 func (s *WebSocketService) streamNameToTopic(streamName string) string {
 	// Parse "symbol@kline_period" format
 	parts := strings.SplitN(streamName, "@", 2)
@@ -217,26 +253,35 @@ func (s *WebSocketService) streamNameToTopic(streamName string) string {
 		return fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, symbol, period)
 	}
 
+	// Handle "volatility_<period>" format
+	if strings.HasPrefix(rest, "volatility_") {
+		volatility := strings.TrimPrefix(rest, "volatility_")
+		return fmt.Sprintf("%s/%s/%s", mqttVolatilityTopicPrefix, symbol, volatility)
+	}
+
 	// Fallback
 	return fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, symbol, rest)
 }
 
 // parseStreamName extracts symbol and period from a stream name.
 // Format: "btcusdt@kline_5m" -> ("BTCUSDT", "5m", true)
+// Format: "btcusdt@volatility_10" -> "binance/volatility/btcusdt/10"
 // Returns ("", "", false) if the stream name cannot be parsed.
-func parseStreamName(streamName string) (symbol, period string, ok bool) {
+func parseStreamName(streamName string) (symbol, kind, period string, ok bool) {
 	parts := strings.SplitN(streamName, "@", 2)
 	if len(parts) != 2 {
-		return "", "", false
+		return "", "", "", false
 	}
 	symbol = strings.ToUpper(parts[0])
 	rest := parts[1]
-	if strings.HasPrefix(rest, "kline_") {
-		period = strings.TrimPrefix(rest, "kline_")
-	} else {
+	parts = strings.SplitN(rest, "_", 2)
+	if len(parts) != 2 {
 		period = rest
+	} else {
+		period = parts[1]
 	}
-	return symbol, period, true
+	kind = parts[0]
+	return symbol, kind, period, true
 }
 
 // subscribeTopic subscribes to an MQTT topic and registers the client's send channel.
@@ -332,8 +377,8 @@ func (s *WebSocketService) writePump(client *wsClient) {
 			s.unsubscribeTopic(topic, client.send)
 
 			// Unsubscribe aggregator for non-1m periods
-			if symbol, period, ok := parseStreamName(streamName); ok && period != "1m" {
-				s.pubSrv.Unsubscribe(symbol, period)
+			if symbol, kind, period, ok := parseStreamName(streamName); ok {
+				s.pubSrv.Unsubscribe(symbol, kind, period)
 			}
 		}
 	}()

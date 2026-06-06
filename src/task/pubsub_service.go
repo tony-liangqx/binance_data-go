@@ -17,7 +17,8 @@ const (
 	defaultMQTTBroker = "tcp://127.0.0.1:1883"
 
 	// MQTT topic prefix for aggregated kline data
-	mqttTopicPrefix = "binance/aggregated"
+	mqttTopicPrefix           = "binance/aggregated"
+	mqttVolatilityTopicPrefix = "binance/volatility"
 
 	// Default SMA window size for indicators created on subscription
 	defaultSMAWindow = 14
@@ -28,6 +29,7 @@ const (
 type AggregatedKline struct {
 	Symbol           string         `json:"symbol"`
 	Period           string         `json:"period"`
+	Volatility       string         `json:"volatility"`
 	StartTime        int64          `json:"start_time"`
 	Open             float64        `json:"open"`
 	High             float64        `json:"high"`
@@ -53,7 +55,7 @@ type PubSubService struct {
 	mqttOpts *mqtt.ClientOptions
 
 	// PointChan receives raw 1m kline points from Subscribers
-	PointChan chan *model.SpotKlinePoint
+	PointChan chan *model.AggregatedKline
 
 	// storage persists aggregated kline data to the database
 	storage model.Storage
@@ -68,7 +70,7 @@ type PubSubService struct {
 	mqttClient mqtt.Client
 
 	// latestPoints caches the latest 1m point per symbol (key = symbol)
-	latestPoints map[string]*model.SpotKlinePoint
+	latestPoints map[string]*model.AggregatedKline
 	latestMu     sync.RWMutex
 }
 
@@ -94,10 +96,10 @@ func NewPubSubServiceWithBroker(broker string) *PubSubService {
 		broker:       broker,
 		clientID:     clientID,
 		mqttOpts:     opts,
-		PointChan:    make(chan *model.SpotKlinePoint, 1024),
+		PointChan:    make(chan *model.AggregatedKline, 1024),
 		aggregators:  make(map[string]ISymbolAggregator),
 		subRefCounts: make(map[string]int),
-		latestPoints: make(map[string]*model.SpotKlinePoint),
+		latestPoints: make(map[string]*model.AggregatedKline),
 	}
 }
 
@@ -113,8 +115,8 @@ func (s *PubSubService) SetStorage(storage model.Storage) {
 // It maintains a reference counter for each (symbol, period). The aggregator
 // is only created on the first subscription and removed when the last
 // subscriber calls Unsubscribe.
-func (s *PubSubService) Subscribe(symbol, period string) {
-	key := symbol + ":" + period
+func (s *PubSubService) Subscribe(symbol, kind, period string) {
+	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -123,22 +125,17 @@ func (s *PubSubService) Subscribe(symbol, period string) {
 		s.subRefCounts[key]++
 		fmt.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
 			symbol, period, s.subRefCounts[key], len(agg.Indicators()))
+		// TODO：聚合器初始化，访问数据库构造历史数据
 		return
 	}
 
 	// TODO：聚合器初始化，访问数据库构造历史数据
-	var agg ISymbolAggregator
-	switch period {
-	case "vd":
-		agg = newPriceChangeAggregator(symbol, period)
-	default:
-		agg = newSymbolAggregator(symbol, period)
-	}
+	agg := newSymbolAggregator(symbol, period)
 	agg.AddDefaultIndicators()
 	s.aggregators[key] = agg
 	s.subRefCounts[key] = 1
 
-	point := s.GetLatestPoint(symbol, period)
+	point := s.GetLatestPoint(symbol, kind, period)
 	point.Period = period
 	agg.SetFirstPoint(&point)
 
@@ -149,8 +146,8 @@ func (s *PubSubService) Subscribe(symbol, period string) {
 // Unsubscribe decrements the reference counter for the given (symbol, period).
 // When the counter drops to zero or below, the aggregator and indicators are
 // removed and cleanup is performed.
-func (s *PubSubService) Unsubscribe(symbol, period string) {
-	key := symbol + ":" + period
+func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
+	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -220,11 +217,15 @@ func (s *PubSubService) start() {
 }
 
 // updateLatestPoint caches the latest 1m kline point per symbol.
-func (s *PubSubService) updateLatestPoint(point *model.SpotKlinePoint) {
+func (s *PubSubService) updateLatestPoint(point *model.AggregatedKline) {
 	s.latestMu.Lock()
 	defer s.latestMu.Unlock()
+	symbol := point.Symbol
+	period := point.Period
+	kind := point.Volatility
+	key := fmt.Sprintf("%s:%s:%s", symbol, kind, period)
 
-	existing, ok := s.latestPoints[point.Symbol]
+	existing, ok := s.latestPoints[key]
 	if !ok || point.StartTime > existing.StartTime {
 		s.latestPoints[point.Symbol] = point
 	}
@@ -232,7 +233,7 @@ func (s *PubSubService) updateLatestPoint(point *model.SpotKlinePoint) {
 
 // GetLatestPoint returns the latest cached 1m kline point for the given symbol.
 // Returns an empty SpotKlinePoint if no data is cached.
-func (s *PubSubService) GetLatestPoint(symbol, period string) model.SpotKlinePoint {
+func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.AggregatedKline {
 	// Note: the period parameter is currently unused — the cache stores
 	// the latest 1m point per symbol regardless of period.
 	// This matches the existing caller in WebSocketService which always
@@ -240,16 +241,17 @@ func (s *PubSubService) GetLatestPoint(symbol, period string) model.SpotKlinePoi
 	s.latestMu.RLock()
 	defer s.latestMu.RUnlock()
 
-	point, ok := s.latestPoints[symbol]
+	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
+	point, ok := s.latestPoints[key]
 	if !ok || point == nil {
-		return model.SpotKlinePoint{}
+		return model.AggregatedKline{}
 	}
 	return *point
 }
 
 // addPoint feeds a 1m point to all aggregators that match the point's symbol.
 // Returns any aggregated klines that were completed by this point.
-func (s *PubSubService) addPoint(point *model.SpotKlinePoint) []*AggregatedKline {
+func (s *PubSubService) addPoint(point *model.AggregatedKline) []*AggregatedKline {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -283,7 +285,14 @@ func (s *PubSubService) addPoint(point *model.SpotKlinePoint) []*AggregatedKline
 
 // publishAggregated publishes the aggregated kline to the MQTT broker.
 func (s *PubSubService) publishAggregated(agg *AggregatedKline) {
-	topic := fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, agg.Symbol, agg.Period)
+	var topic string
+	switch agg.Volatility {
+	case "":
+		topic = fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, agg.Symbol, agg.Period)
+	default:
+		topic = fmt.Sprintf("%s/%s/%s", mqttVolatilityTopicPrefix, agg.Symbol, agg.Volatility)
+	}
+
 	payload, err := json.Marshal(agg)
 	if err != nil {
 		fmt.Printf("publishAggregated Marshal error: %s\n", err.Error())

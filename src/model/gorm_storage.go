@@ -33,9 +33,9 @@ func (s *GormStorage) Commit(point *SpotKlinePoint) error {
 // CommitAggKline inserts an aggregated kline into the database.
 func (s *GormStorage) CommitAggKline(kline *AggBinanceSpotKline) error {
 	return s.db.Exec(
-		`INSERT INTO agg_binance_spot_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		kline.Symbol, kline.Period, kline.StartTime, kline.DateTime,
+		`INSERT INTO agg_binance_spot_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		kline.Symbol, kline.Period, kline.Volatility, kline.StartTime, kline.DateTime,
 		kline.Open, kline.High, kline.Low, kline.Close,
 		kline.Volume, kline.QuoteAssetVolume, kline.Trades, kline.CloseTime,
 	).Error
@@ -54,4 +54,18 @@ func (s *GormStorage) GetLastTimeStamp(symbol string, period string) (int64, err
 		return 0, err
 	}
 	return startTime, nil
+}
+
+// Returns 0 if no records exist.
+// Uses Raw SQL to avoid GORM query builder incompatibilities with ClickHouse native protocol.
+func (s *GormStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*AggBinanceSpotKline, error) {
+	var point AggBinanceSpotKline
+	err := s.db.Raw(
+		"SELECT * FROM agg_binance_spot_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
+		symbol, period, volatility,
+	).Scan(&point).Error
+	if err != nil {
+		return nil, err
+	}
+	return &point, nil
 }

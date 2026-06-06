@@ -22,6 +22,9 @@ type Subscriber struct {
 	// Sync coordination — used when HistorySyncer is backfilling data
 	syncing bool
 
+	// aggregator is the volatility aggregator that processes incoming kline points
+	aggregators []*model.VolatilityDataWriter
+
 	// buffer holds kline points that arrived via websocket while a
 	// HistorySyncer was backfilling. They are drained in SyncDone,
 	// after the syncer's data has been committed to storage.
@@ -29,20 +32,26 @@ type Subscriber struct {
 
 	// pointChan is an optional channel for publishing processed points
 	// to external consumers (e.g., PubSubService for MQTT aggregation).
-	pointChan chan<- *model.SpotKlinePoint
+	pointChan chan<- *model.AggregatedKline
 }
 
 // NewSubscriber creates a new Subscriber instance
 func NewSubscriber(storage model.Storage, symbol string, period string) *Subscriber {
+	aggregators := []*model.VolatilityDataWriter{
+		model.NewVolatilityDataWriter(symbol, 0.5, storage),
+		model.NewVolatilityDataWriter(symbol, 1, storage),
+		model.NewVolatilityDataWriter(symbol, 2, storage),
+	}
 	return &Subscriber{
-		storage: storage,
-		symbol:  symbol,
-		period:  period,
+		storage:     storage,
+		symbol:      symbol,
+		period:      period,
+		aggregators: aggregators,
 	}
 }
 
 // SetPointChan sets the channel for publishing processed points to external consumers.
-func (s *Subscriber) SetPointChan(ch chan<- *model.SpotKlinePoint) {
+func (s *Subscriber) SetPointChan(ch chan<- *model.AggregatedKline) {
 	s.pointChan = ch
 }
 
@@ -115,13 +124,7 @@ func (s *Subscriber) start() {
 	_ = stopC
 }
 
-// handleKline processes each incoming kline event.
-// It always updates the timestamp. If a HistorySyncer is actively backfilling,
-// the point is buffered and replayed after sync completes — preventing data loss
-// when the syncer's targetTime was captured before this point arrived.
-func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
-	kline := event.Kline
-
+func (s *Subscriber) HandleKline(kline *binance.WsKline) {
 	// Only process closed (finished) klines
 	if !kline.IsFinal {
 		return
@@ -163,6 +166,16 @@ func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
 	}
 }
 
+// handleKline processes each incoming kline event.
+// It always updates the timestamp. If a HistorySyncer is actively backfilling,
+// the point is buffered and replayed after sync completes — preventing data loss
+// when the syncer's targetTime was captured before this point arrived.
+func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
+	kline := event.Kline
+
+	s.HandleKline(&kline)
+}
+
 // processPoint handles a closed kline point: checks gap, saves or triggers history sync.
 func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 	// TODO：查询是否导致性能问题？
@@ -188,15 +201,7 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 		// TODO: 改成配置项
 		if diff == 60000 {
 			// Contiguous data, save directly
-			if err := s.storage.Commit(point); err != nil {
-				fmt.Printf("failed to commit kline: %v\n", err)
-				return err
-			} else {
-				fmt.Printf("[ws] saved kline: %s %s start=%d close=%f\n",
-					s.symbol, s.period, point.StartTime, point.Close)
-			}
-			s.publishPoint(point)
-			return nil
+			return s.savePoint(point)
 		}
 
 		// Gap detected: start HistorySyncer asynchronously to backfill
@@ -215,7 +220,7 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 		// Launch syncer asynchronously — it will backfill from lastTime
 		// up to the subscriber's dynamically-advancing timestamp, then
 		// call SyncDone to hand write control back to the subscriber.
-		syncer := NewHistorySyncer(s.storage, s.symbol, s.period, lastTime, s, s.pointChan)
+		syncer := NewHistorySyncer(s.storage, s.symbol, s.period, lastTime, s, s.savePoint)
 		go syncer.Sync()
 		// Note: the trigger point is NOT committed here. The syncer
 		// will fetch it as part of the historical backfill when it
@@ -223,21 +228,45 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 		return nil
 	} else {
 		// No existing data, save directly
+		return s.savePoint(point)
+	}
+}
+
+func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
+	{
+		// No existing data, save directly
+		// Commit会合并volatility数据
+		// TODO：publish出去的数据兼容“1m数据格式”和“合并volatility数据”
+		points := make([]*model.AggregatedKline, 0, len(s.aggregators)+1)
+		for _, aggregator := range s.aggregators {
+			agg, err := aggregator.Add(point)
+			if err != nil {
+				fmt.Printf("failed to add point to aggregator: %v\n", err)
+				// TODO:: 未来解决
+				panic(err)
+			}
+			if agg != nil {
+				points = append(points, agg)
+			}
+		}
 		if err := s.storage.Commit(point); err != nil {
 			fmt.Printf("failed to commit first kline: %v\n", err)
-			return err
+			// TODO:: 未来解决
+			panic(err)
 		}
 		fmt.Printf("[ws] saved first kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
-		s.publishPoint(point)
+		for _, point := range points {
+			s.publishPoint(point)
+		}
 		return nil
 	}
 }
 
 // publishPoint sends the point to the external channel if one is configured.
 // Sends are non-blocking to avoid slowing down the subscriber.
-func (s *Subscriber) publishPoint(point *model.SpotKlinePoint) {
+func (s *Subscriber) publishPoint(point *model.AggregatedKline) {
 	if s.pointChan != nil {
 		select {
 		case s.pointChan <- point:

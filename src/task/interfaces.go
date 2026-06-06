@@ -13,7 +13,7 @@ type ISymbolAggregator interface {
 	// Add inserts a 1m point into the aggregator. When the aggregation window
 	// is complete, it returns the aggregated kline. Returns nil if more points
 	// are needed to complete the window.
-	Add(point *model.SpotKlinePoint) *AggregatedKline
+	Add(point *model.AggregatedKline) *AggregatedKline
 
 	// Symbol returns the trading symbol this aggregator tracks.
 	Symbol() string
@@ -29,11 +29,11 @@ type ISymbolAggregator interface {
 
 	// SetFirstPoint sets the first point of the current aggregation window.
 	// Used during initialization to restore historical state.
-	SetFirstPoint(point *model.SpotKlinePoint)
+	SetFirstPoint(point *model.AggregatedKline)
 
 	// FirstPoint returns the first point of the current aggregation window,
 	// or nil if the window has not been initialized.
-	FirstPoint() *model.SpotKlinePoint
+	FirstPoint() *model.AggregatedKline
 
 	// Indicators returns the list of indicators attached to this aggregator.
 	Indicators() []IIndicator

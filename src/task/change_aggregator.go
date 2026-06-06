@@ -3,11 +3,12 @@ package task
 import (
 	"fmt"
 	"math"
+	"strconv"
 
 	"binance.data.sync/src/model"
 )
 
-// priceChangeAggregator accumulates 1m kline points and produces an aggregated
+// volatilityAggregator accumulates 1m kline points and produces an aggregated
 // kline whenever the price change percentage exceeds 0.01 %.
 //
 // The trigger condition is:
@@ -16,9 +17,11 @@ import (
 //	triggered when changePct > 0.01
 //
 // This is a price - driven aggregator, unlike the count - based symbolAggregator.
-type priceChangeAggregator struct {
-	symbol string
-	period string
+type volatilityAggregator struct {
+	symbol          string
+	period          string
+	volatility      string
+	floatVolatility float64
 
 	// pointsPerAgg is kept for interface compliance; not used for trigger logic
 	pointsPerAgg int
@@ -27,7 +30,10 @@ type priceChangeAggregator struct {
 	count int
 
 	// first point of the current window — provides Open, StartTime and firstClose
-	firstPoint *model.SpotKlinePoint
+	firstPoint *model.AggregatedKline
+
+	// storage persists aggregated kline data to the database
+	storage model.Storage
 
 	// running aggregates for the current window
 	high             float64
@@ -47,44 +53,55 @@ type priceChangeAggregator struct {
 	indicators []IIndicator
 }
 
-// newPriceChangeAggregator creates a new price - change - driven aggregator for
+// newVolatilityAggregator creates a new price - change - driven aggregator for
 // the given symbol / period.
-func newPriceChangeAggregator(symbol, period string) *priceChangeAggregator {
-	return &priceChangeAggregator{
-		symbol:       symbol,
-		period:       period,
-		pointsPerAgg: 1,
-		indicators:   make([]IIndicator, 0),
+func newVolatilityAggregator(symbol, volatility string, storage model.Storage) *volatilityAggregator {
+	var floatVolatility float64
+	value, err := strconv.Atoi(volatility)
+	if err != nil {
+		// 默认值
+		floatVolatility = 1.0
+		value = 10
+	} else {
+		floatVolatility = float64(value) / 10
+	}
+	return &volatilityAggregator{
+		symbol:          symbol,
+		volatility:      volatility,
+		floatVolatility: floatVolatility,
+		pointsPerAgg:    value,
+		indicators:      make([]IIndicator, 0),
+		storage:         storage,
 	}
 }
 
 // Symbol returns the trading symbol this aggregator tracks.
-func (a *priceChangeAggregator) Symbol() string { return a.symbol }
+func (a *volatilityAggregator) Symbol() string { return a.symbol }
 
 // Period returns the aggregation period.
-func (a *priceChangeAggregator) Period() string { return a.period }
+func (a *volatilityAggregator) Period() string { return a.period }
 
 // PointsPerAgg returns 1 since this aggregator is not count - based.
-func (a *priceChangeAggregator) PointsPerAgg() int { return a.pointsPerAgg }
+func (a *volatilityAggregator) PointsPerAgg() int { return a.pointsPerAgg }
 
 // SetFirstPoint sets the first point of the current aggregation window.
 // Used during initialization to restore historical state.
-func (a *priceChangeAggregator) SetFirstPoint(point *model.SpotKlinePoint) {
+func (a *volatilityAggregator) SetFirstPoint(point *model.AggregatedKline) {
 	a.firstPoint = point
 }
 
 // FirstPoint returns the first point of the current window, or nil.
-func (a *priceChangeAggregator) FirstPoint() *model.SpotKlinePoint {
+func (a *volatilityAggregator) FirstPoint() *model.AggregatedKline {
 	return a.firstPoint
 }
 
 // Indicators returns the list of indicators attached to this aggregator.
-func (a *priceChangeAggregator) Indicators() []IIndicator {
+func (a *volatilityAggregator) Indicators() []IIndicator {
 	return a.indicators
 }
 
 // AddDefaultIndicators creates and cold - starts the default set of indicators.
-func (a *priceChangeAggregator) AddDefaultIndicators() {
+func (a *volatilityAggregator) AddDefaultIndicators() {
 	vd := NewVolumeDensityIndicator(a.period)
 	vd.ColdStart(a.symbol, a.period)
 	a.indicators = append(a.indicators, vd)
@@ -94,9 +111,7 @@ func (a *priceChangeAggregator) AddDefaultIndicators() {
 // Add inserts a 1m point into the aggregator. When the price change percentage
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
-func (a *priceChangeAggregator) Add(point *model.SpotKlinePoint) *AggregatedKline {
-	point.Period = a.period
-
+func (a *volatilityAggregator) Add(point *model.AggregatedKline) *AggregatedKline {
 	if a.firstPoint == nil || a.count == 0 {
 		// First point of a new window: initialize all state
 		a.firstPoint = point
@@ -140,7 +155,7 @@ func (a *priceChangeAggregator) Add(point *model.SpotKlinePoint) *AggregatedKlin
 	}
 	changePct := (math.Abs(a.lastClose-firstClose) / firstClose) * 100
 
-	if changePct > 0.001 {
+	if changePct > a.floatVolatility {
 		return a.finalize(point)
 	}
 
@@ -148,7 +163,7 @@ func (a *priceChangeAggregator) Add(point *model.SpotKlinePoint) *AggregatedKlin
 }
 
 // finalize builds the aggregated kline, resets the window, and runs indicators.
-func (a *priceChangeAggregator) finalize(point *model.SpotKlinePoint) *AggregatedKline {
+func (a *volatilityAggregator) finalize(point *model.AggregatedKline) *AggregatedKline {
 	if a.firstPoint == nil {
 		return nil
 	}
@@ -193,8 +208,43 @@ func (a *priceChangeAggregator) finalize(point *model.SpotKlinePoint) *Aggregate
 	a.lastCloseTime = point.CloseTime
 	a.count = 1
 
+	// 写入数据库
+	a.saveAggregated(agg)
+
 	return agg
 }
 
+// saveAggregated writes the aggregated kline to the AggBinanceSpotKline table.
+func (a *volatilityAggregator) saveAggregated(agg *AggregatedKline) {
+	if a.storage == nil {
+		return
+	}
+
+	kline := &model.AggBinanceSpotKline{
+		Symbol:           agg.Symbol,
+		Period:           agg.Period,
+		Volatility:       agg.Volatility,
+		StartTime:        agg.StartTime,
+		DateTime:         model.DateTimeMillis(agg.StartTime),
+		Open:             agg.Open,
+		High:             agg.High,
+		Low:              agg.Low,
+		Close:            agg.Close,
+		Volume:           agg.Volume,
+		CloseTime:        agg.CloseTime,
+		QuoteAssetVolume: agg.QuoteAssetVolume,
+		Trades:           agg.Trades,
+	}
+
+	if err := a.storage.CommitAggKline(kline); err != nil {
+		fmt.Printf("[pubsub] failed to save aggregated kline: %v\n", err)
+		// TODO: 后期修复
+		panic(err)
+	} else {
+		fmt.Printf("[pubsub] saved aggregated kline: %s %s start=%d\n",
+			agg.Symbol, agg.Period, agg.StartTime)
+	}
+}
+
 // compile-time interface check
-var _ ISymbolAggregator = (*priceChangeAggregator)(nil)
+var _ ISymbolAggregator = (*volatilityAggregator)(nil)

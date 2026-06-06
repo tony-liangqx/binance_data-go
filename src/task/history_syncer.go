@@ -21,26 +21,24 @@ type TimestampProvider interface {
 // when a gap is detected between the last saved kline and the incoming websocket kline.
 // It runs asynchronously and signals the Subscriber when it catches up.
 type HistorySyncer struct {
-	timeStamp  int64
-	storage    model.Storage
-	symbol     string
-	period     string
-	tsProvider TimestampProvider
-	// pointChan is an optional channel for publishing processed points
-	// to external consumers (e.g., PubSubService for MQTT aggregation).
-	pointChan chan<- *model.SpotKlinePoint
+	timeStamp     int64
+	storage       model.Storage
+	symbol        string
+	period        string
+	tsProvider    TimestampProvider
+	savePointFunc func(point *model.SpotKlinePoint) error
 }
 
 // NewHistorySyncer creates a new HistorySyncer instance.
 // tsProvider gives the syncer access to the Subscriber's latest websocket position.
-func NewHistorySyncer(storage model.Storage, symbol string, period string, lastTime int64, tsProvider TimestampProvider, pointChan chan<- *model.SpotKlinePoint) *HistorySyncer {
+func NewHistorySyncer(storage model.Storage, symbol string, period string, lastTime int64, tsProvider TimestampProvider, savePointFunc func(point *model.SpotKlinePoint) error) *HistorySyncer {
 	return &HistorySyncer{
-		storage:    storage,
-		symbol:     symbol,
-		period:     period,
-		timeStamp:  lastTime,
-		tsProvider: tsProvider,
-		pointChan:  pointChan,
+		storage:       storage,
+		symbol:        symbol,
+		period:        period,
+		timeStamp:     lastTime,
+		tsProvider:    tsProvider,
+		savePointFunc: savePointFunc,
 	}
 }
 
@@ -52,18 +50,6 @@ func (h *HistorySyncer) GetTimeStamp() int64 {
 // Start implements the Task interface
 func (h *HistorySyncer) Start(timeStamp int64) {
 	h.timeStamp = timeStamp
-}
-
-// publishPoint sends the point to the external channel if one is configured.
-// Sends are non-blocking to avoid slowing down the subscriber.
-func (h *HistorySyncer) publishPoint(point *model.SpotKlinePoint) {
-	if h.pointChan != nil {
-		select {
-		case h.pointChan <- point:
-		default:
-			// Channel full, skip to avoid blocking the subscriber
-		}
-	}
 }
 
 // Sync fetches historical klines from Binance REST API starting from the last saved record.
@@ -133,16 +119,9 @@ func (h *HistorySyncer) Sync() {
 				Trades:           uint32(k.TradeNum),
 			}
 
-			if err := h.storage.Commit(point); err != nil {
-				fmt.Printf("[history] failed to commit kline %d: %v\n", k.OpenTime, err)
-				// 数据库无法写入，需要panic
-				panic(err)
-			}
+			h.savePointFunc(point)
 			fmt.Printf("[history] saved kline: %s %s start=%d close=%s\n",
 				h.symbol, h.period, k.OpenTime, k.Close)
-			h.timeStamp = k.OpenTime
-			// 推送
-			h.publishPoint(point)
 		}
 
 		// Check if we've caught up to the latest subscriber timestamp

@@ -43,7 +43,7 @@ func main() {
 		fmt.Printf("sending kline point [%2d/%2d]: symbol=%s, period=%s, start=%d, open=%.2f, close=%.2f\n",
 			i+1, 20, point.Symbol, point.Period, point.StartTime, point.Open, point.Close)
 
-		pubSubService.PointChan <- point
+		// pubSubService.PointChan <- point
 
 		// Small delay to simulate real-time ingestion
 		time.Sleep(50 * time.Millisecond)
