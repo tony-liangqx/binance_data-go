@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"binance.data.sync/src/model"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gorilla/websocket"
 )
@@ -201,22 +200,9 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
 			continue
 		}
-		s.pubSrv.Subscribe(symbol, kind, period)
+		point := s.pubSrv.Subscribe(symbol, kind, period)
 
 		// 发送缓存message
-		tokens := strings.Split(topic, "/")
-		if len(tokens) != 4 {
-			continue
-		}
-		// 获取内存中的聚合数据
-		var point model.AggregatedKline
-		s.mu.RLock()
-		agg, ok := s.pubSrv.aggregators[tokens[2]+":"+tokens[3]]
-		if ok && agg.FirstPoint() != nil {
-			point = *agg.FirstPoint()
-		}
-		s.mu.RUnlock()
-
 		buf, err := json.Marshal(point)
 		if err != nil {
 			fmt.Printf("GetLatestPoint Marshal error:%s\n", err.Error())
@@ -264,9 +250,9 @@ func (s *WebSocketService) streamNameToTopic(streamName string) string {
 }
 
 // parseStreamName extracts symbol and period from a stream name.
-// Format: "btcusdt@kline_5m" -> ("BTCUSDT", "5m", true)
-// Format: "btcusdt@volatility_10" -> "binance/volatility/btcusdt/10"
-// Returns ("", "", false) if the stream name cannot be parsed.
+// Format: "btcusdt@kline_5m"      -> ("BTCUSDT", "kline", "5m", true)
+// Format: "btcusdt@volatility_10" -> ("BTCUSDT", "volatility", "10", true)
+// Returns ("", "", "", false) if the stream name cannot be parsed.
 func parseStreamName(streamName string) (symbol, kind, period string, ok bool) {
 	parts := strings.SplitN(streamName, "@", 2)
 	if len(parts) != 2 {
@@ -276,11 +262,10 @@ func parseStreamName(streamName string) (symbol, kind, period string, ok bool) {
 	rest := parts[1]
 	parts = strings.SplitN(rest, "_", 2)
 	if len(parts) != 2 {
-		period = rest
-	} else {
-		period = parts[1]
+		return "", "", "", false
 	}
 	kind = parts[0]
+	period = parts[1]
 	return symbol, kind, period, true
 }
 

@@ -115,7 +115,7 @@ func (s *PubSubService) SetStorage(storage model.Storage) {
 // It maintains a reference counter for each (symbol, period). The aggregator
 // is only created on the first subscription and removed when the last
 // subscriber calls Unsubscribe.
-func (s *PubSubService) Subscribe(symbol, kind, period string) {
+func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedKline {
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 
 	s.mu.Lock()
@@ -126,7 +126,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) {
 		fmt.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
 			symbol, period, s.subRefCounts[key], len(agg.Indicators()))
 		// TODO：聚合器初始化，访问数据库构造历史数据
-		return
+		return *(agg.FirstPoint())
 	}
 
 	// TODO：聚合器初始化，访问数据库构造历史数据
@@ -135,12 +135,13 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) {
 	s.aggregators[key] = agg
 	s.subRefCounts[key] = 1
 
-	point := s.GetLatestPoint(symbol, kind, period)
+	point := s.GetLatestPoint(symbol, kind, "1m")
 	point.Period = period
 	agg.SetFirstPoint(&point)
 
 	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
 		symbol, period, agg.PointsPerAgg(), len(agg.Indicators()))
+	return point
 }
 
 // Unsubscribe decrements the reference counter for the given (symbol, period).
@@ -205,7 +206,7 @@ func (s *PubSubService) start() {
 			fmt.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
 		}
 
-		// Update the 1m cache for this symbol
+		// Update the cache
 		s.updateLatestPoint(point)
 
 		// Route the 1m point to all aggregators for this symbol
@@ -218,17 +219,21 @@ func (s *PubSubService) start() {
 
 // updateLatestPoint caches the latest 1m kline point per symbol.
 func (s *PubSubService) updateLatestPoint(point *model.AggregatedKline) {
-	s.latestMu.Lock()
-	defer s.latestMu.Unlock()
 	symbol := point.Symbol
 	period := point.Period
-	kind := point.Volatility
-	key := fmt.Sprintf("%s:%s:%s", symbol, kind, period)
-
-	existing, ok := s.latestPoints[key]
-	if !ok || point.StartTime > existing.StartTime {
-		s.latestPoints[point.Symbol] = point
+	var kind string
+	if point.Volatility != "" {
+		kind = point.Volatility
+	} else {
+		kind = "kline"
 	}
+
+	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
+
+	s.latestMu.Lock()
+	defer s.latestMu.Unlock()
+	s.latestPoints[key] = point
+	fmt.Printf("[pubsub] latest points: %s\n", key)
 }
 
 // GetLatestPoint returns the latest cached 1m kline point for the given symbol.
@@ -244,6 +249,12 @@ func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.Aggreg
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 	point, ok := s.latestPoints[key]
 	if !ok || point == nil {
+		buf, err := json.MarshalIndent(s.latestPoints, "", "  ")
+		if err != nil {
+			fmt.Printf("[pubsub] failed to marshal latest points: %v\n", err)
+		} else {
+			fmt.Printf("[pubsub] latest points: %s\n", buf)
+		}
 		return model.AggregatedKline{}
 	}
 	return *point

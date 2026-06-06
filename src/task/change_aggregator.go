@@ -208,42 +208,7 @@ func (a *volatilityAggregator) finalize(point *model.AggregatedKline) *Aggregate
 	a.lastCloseTime = point.CloseTime
 	a.count = 1
 
-	// 写入数据库
-	a.saveAggregated(agg)
-
 	return agg
-}
-
-// saveAggregated writes the aggregated kline to the AggBinanceSpotKline table.
-func (a *volatilityAggregator) saveAggregated(agg *AggregatedKline) {
-	if a.storage == nil {
-		return
-	}
-
-	kline := &model.AggBinanceSpotKline{
-		Symbol:           agg.Symbol,
-		Period:           agg.Period,
-		Volatility:       agg.Volatility,
-		StartTime:        agg.StartTime,
-		DateTime:         model.DateTimeMillis(agg.StartTime),
-		Open:             agg.Open,
-		High:             agg.High,
-		Low:              agg.Low,
-		Close:            agg.Close,
-		Volume:           agg.Volume,
-		CloseTime:        agg.CloseTime,
-		QuoteAssetVolume: agg.QuoteAssetVolume,
-		Trades:           agg.Trades,
-	}
-
-	if err := a.storage.CommitAggKline(kline); err != nil {
-		fmt.Printf("[pubsub] failed to save aggregated kline: %v\n", err)
-		// TODO: 后期修复
-		panic(err)
-	} else {
-		fmt.Printf("[pubsub] saved aggregated kline: %s %s start=%d\n",
-			agg.Symbol, agg.Period, agg.StartTime)
-	}
 }
 
 // compile-time interface check

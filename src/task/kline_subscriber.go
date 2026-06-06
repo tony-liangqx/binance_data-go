@@ -254,9 +254,24 @@ func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 			// TODO:: 未来解决
 			panic(err)
 		}
-		fmt.Printf("[ws] saved first kline: %s %s start=%d close=%f\n",
+		fmt.Printf("[ws] saved kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
+		lastPoint := &model.AggregatedKline{
+			Symbol:           point.Symbol,
+			Period:           point.Period,
+			StartTime:        point.StartTime,
+			Open:             point.Open,
+			High:             point.High,
+			Low:              point.Low,
+			Close:            point.Close,
+			Volume:           point.Volume,
+			CloseTime:        point.CloseTime,
+			QuoteAssetVolume: point.QuoteAssetVolume,
+			Trades:           point.Trades,
+		}
+
+		points = append(points, lastPoint)
 		for _, point := range points {
 			s.publishPoint(point)
 		}

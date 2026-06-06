@@ -117,8 +117,8 @@ type SpotKlinePoint struct {
 // by aggregating multiple 1m klines over a user-specified period.
 type AggregatedKline struct {
 	Symbol           string         `json:"symbol"`
-	Period           string         `json:"period"`
-	Volatility       string         `json:"volatility"`
+	Period           string         `json:"period,omitempty"`
+	Volatility       string         `json:"volatility,omitempty"`
 	StartTime        int64          `json:"start_time"`
 	Open             float64        `json:"open"`
 	High             float64        `json:"high"`
