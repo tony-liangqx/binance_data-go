@@ -117,7 +117,10 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedK
 		agg = newVolatilityAggregator(symbol, period)
 		// 返回不同类型的数据
 		point = s.GetLatestPoint(symbol, kind, period)
-		point = *(agg.Add(&point))
+		t := agg.Add(&point)
+		if t != nil {
+			point = *t
+		}
 	default:
 		agg = newSymbolAggregator(symbol, period)
 		point = s.GetLatestPoint(symbol, kind, "1m")

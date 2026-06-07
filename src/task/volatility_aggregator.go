@@ -20,6 +20,8 @@ type volatilityAggregator struct {
 	period     string
 	volatility string
 
+	kind string
+
 	// first point of the current window — provides Open, StartTime and firstClose
 	firstPoint *model.AggregatedKline
 	count      int
@@ -34,6 +36,7 @@ func newVolatilityAggregator(symbol, volatility string) *volatilityAggregator {
 	return &volatilityAggregator{
 		symbol:     symbol,
 		volatility: volatility,
+		kind:       "volatility",
 		indicators: make([]IIndicator, 0),
 	}
 }
@@ -76,6 +79,9 @@ func (a *volatilityAggregator) AddDefaultIndicators() {
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
 func (a *volatilityAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
+	if point == nil || point.Kind != a.kind {
+		return nil
+	}
 	a.SetFirstPoint(point)
 	copyed := *point
 	// 对外改变数据字段
