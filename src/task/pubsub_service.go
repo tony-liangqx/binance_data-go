@@ -116,7 +116,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedK
 	case "volatility":
 		agg = newVolatilityAggregator(symbol, period)
 		// 返回不同类型的数据
-		point = s.GetLatestPoint(symbol, kind, "1m")
+		point = s.GetLatestPoint(symbol, kind, period)
 		point = *(agg.Add(&point))
 	default:
 		agg = newSymbolAggregator(symbol, period)
@@ -165,9 +165,92 @@ func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
 		symbol, period)
 }
 
-// Start begins the PubSubService. It connects to MQTT and starts consuming
-// points from PointChan.
+// 1. 从BinanceSpotKline和AggBinanceSpotKline数据库中查询最新记录
+// 2. 将查询结果转换为AggregatedKline格式，通过updateLatestPoint方法直接更新到内容
+// 3. BinanceSpotKline数据记录通过GROUP BY (symbol, period)、获得symbol和period的分组，最新的一条记录
+// 4. AggBinanceSpotKline数据记录通过GROUP BY (symbol, volatility)获得symbol和volatility的分组，最新的一条记录
+func (s *PubSubService) loadHistoricalData() {
+	if s.storage == nil {
+		fmt.Println("[pubsub] no storage set, skipping historical data load")
+		return
+	}
+
+	db := s.storage.GetDB()
+	if db == nil {
+		fmt.Println("[pubsub] no db connection, skipping historical data load")
+		return
+	}
+
+	// 1. Query BinanceSpotKline - latest record per (symbol, period)
+	var klines []model.BinanceSpotKline
+	err := db.Raw(`
+		SELECT a.* FROM binance_spot_kline a
+		INNER JOIN (
+			SELECT symbol, period, MAX(start_time) AS max_start_time
+			FROM binance_spot_kline
+			GROUP BY symbol, period
+		) b ON a.symbol = b.symbol AND a.period = b.period AND a.start_time = b.max_start_time
+	`).Scan(&klines).Error
+	if err != nil {
+		fmt.Printf("[pubsub] failed to load latest BinanceSpotKline: %v\n", err)
+	} else {
+		for _, k := range klines {
+			point := &model.AggregatedKline{
+				Symbol:           k.Symbol,
+				Period:           k.Period,
+				StartTime:        k.StartTime,
+				Open:             k.Open,
+				High:             k.High,
+				Low:              k.Low,
+				Close:            k.Close,
+				Volume:           k.Volume,
+				QuoteAssetVolume: k.QuoteAssetVolume,
+				Trades:           k.Trades,
+				CloseTime:        k.CloseTime,
+			}
+			s.updateLatestPoint(point)
+			fmt.Printf("[pubsub] loaded latest kline: %s/%s start=%d\n", k.Symbol, k.Period, k.StartTime)
+		}
+	}
+
+	// 2. Query AggBinanceSpotKline - latest record per (symbol, volatility)
+	var aggKlines []model.AggBinanceSpotKline
+	err = db.Raw(`
+		SELECT a.* FROM agg_binance_spot_kline a
+		INNER JOIN (
+			SELECT symbol, volatility, MAX(start_time) AS max_start_time
+			FROM agg_binance_spot_kline
+			GROUP BY symbol, volatility
+		) b ON a.symbol = b.symbol AND a.volatility = b.volatility AND a.start_time = b.max_start_time
+	`).Scan(&aggKlines).Error
+	if err != nil {
+		fmt.Printf("[pubsub] failed to load latest AggBinanceSpotKline: %v\n", err)
+	} else {
+		for _, k := range aggKlines {
+			point := &model.AggregatedKline{
+				Symbol:           k.Symbol,
+				Period:           k.Period,
+				Volatility:       k.Volatility,
+				StartTime:        k.StartTime,
+				Open:             k.Open,
+				High:             k.High,
+				Low:              k.Low,
+				Close:            k.Close,
+				Volume:           k.Volume,
+				QuoteAssetVolume: k.QuoteAssetVolume,
+				Trades:           k.Trades,
+				CloseTime:        k.CloseTime,
+			}
+			s.updateLatestPoint(point)
+			fmt.Printf("[pubsub] loaded latest agg kline: %s/%s volatility=%s start=%d\n", k.Symbol, k.Period, k.Volatility, k.StartTime)
+		}
+	}
+}
+
+// Start begins the PubSubService. It loads historical data into cache from the
+// database, then connects to MQTT and starts consuming points from PointChan.
 func (s *PubSubService) Start() {
+	s.loadHistoricalData()
 	s.start()
 }
 
@@ -211,12 +294,14 @@ func (s *PubSubService) start() {
 // updateLatestPoint caches the latest 1m kline point per symbol.
 func (s *PubSubService) updateLatestPoint(point *model.AggregatedKline) {
 	symbol := point.Symbol
-	period := point.Period
+	var period string
 	var kind string
 	if point.Volatility != "" {
-		kind = point.Volatility
+		kind = "volatility"
+		period = point.Volatility
 	} else {
 		kind = "kline"
+		period = point.Period
 	}
 
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
@@ -240,6 +325,7 @@ func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.Aggreg
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 	point, ok := s.latestPoints[key]
 	if !ok || point == nil {
+		fmt.Printf("[pubsub] no cached point for %s\n", key)
 		buf, err := json.MarshalIndent(s.latestPoints, "", "  ")
 		if err != nil {
 			fmt.Printf("[pubsub] failed to marshal latest points: %v\n", err)
