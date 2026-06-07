@@ -138,9 +138,9 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 			Close:      point.Close,
 			CloseTime:  point.CloseTime,
 			// 计算聚合值
-			Volume:           a.volume / float64(a.count),
-			QuoteAssetVolume: a.quoteAssetVolume / float64(a.count),
-			Trades:           a.trades / uint32(a.count),
+			Volume:           a.volume,
+			QuoteAssetVolume: a.quoteAssetVolume,
+			Trades:           a.trades,
 		}
 		agg, err := a.finalize(newAgg)
 		if err != nil {

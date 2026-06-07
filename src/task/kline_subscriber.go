@@ -44,6 +44,8 @@ func NewSubscriber(storage model.Storage, symbol string, period string) *Subscri
 	}
 	return &Subscriber{
 		storage:     storage,
+		symbol:      symbol,
+		period:      period,
 		aggregators: aggregators,
 	}
 }
@@ -115,12 +117,14 @@ func (s *Subscriber) alignWithKline() {
 	records := make([]*model.AggBinanceSpotKline, 0)
 	err := s.storage.GetDB().Raw(
 		`SELECT *
-FROM agg_binance_spot_kline
-WHERE (symbol, volatility, close_time) IN (
-    SELECT symbol, volatility, MAX(close_time)
     FROM agg_binance_spot_kline
-    GROUP BY symbol, volatility
-)`,
+    WHERE symbol = ?
+    AND (volatility, close_time) IN (
+        SELECT volatility, MAX(close_time)
+        FROM agg_binance_spot_kline
+        WHERE symbol = ?
+        GROUP BY volatility
+    )`, s.symbol, s.symbol,
 	).Scan(&records).Error
 	if err != nil {
 		fmt.Printf("[alignWithKline] %s %s failed to get last agg close_time: %v\n", s.symbol, s.period, err)
