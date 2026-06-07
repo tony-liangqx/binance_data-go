@@ -253,18 +253,18 @@ func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 		// Commit会合并volatility数据
 		points, err := s.aggregatePoint(point)
 		if err != nil {
-			fmt.Printf("aggregator error: %v\n", err)
+			fmt.Printf("[subscriber] aggregator error: %v\n", err)
 			// TODO:: 未来解决
 			panic(err)
 		}
 
 		if err := s.storage.Commit(point); err != nil {
-			fmt.Printf("failed to commit kline error: %v\n", err)
+			fmt.Printf("[subscriber] failed to commit kline error: %v\n", err)
 			// TODO:: 未来解决
 			panic(err)
 		}
 
-		fmt.Printf("[ws] saved kline: %s %s start=%d close=%f\n",
+		fmt.Printf("[subscriber] saved kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
 		lastPoint := &model.AggregatedKline{
