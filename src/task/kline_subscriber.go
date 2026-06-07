@@ -151,18 +151,20 @@ func (s *Subscriber) alignWithKline() {
 		// 3. 全部记录按时间顺序交给aggregatePoint处理
 		for _, kline := range klines {
 			point := &model.SpotKlinePoint{
-				Symbol:           kline.Symbol,
-				Period:           kline.Period,
-				StartTime:        kline.StartTime,
-				DateTime:         int64(kline.DateTime),
-				Open:             kline.Open,
-				High:             kline.High,
-				Low:              kline.Low,
-				Close:            kline.Close,
-				Volume:           kline.Volume,
-				QuoteAssetVolume: kline.QuoteAssetVolume,
-				Trades:           kline.Trades,
-				CloseTime:        kline.CloseTime,
+				Symbol:               kline.Symbol,
+				Period:               kline.Period,
+				StartTime:            kline.StartTime,
+				DateTime:             int64(kline.DateTime),
+				Open:                 kline.Open,
+				High:                 kline.High,
+				Low:                  kline.Low,
+				Close:                kline.Close,
+				Volume:               kline.Volume,
+				QuoteAssetVolume:     kline.QuoteAssetVolume,
+				Trades:               kline.Trades,
+				CloseTime:            kline.CloseTime,
+				ActiveBuyVolume:      kline.ActiveBuyVolume,
+				ActiveBuyQuoteVolume: kline.ActiveBuyQuoteVolume,
 			}
 			_, err := s.aggregatePoint(point)
 			if err != nil {
@@ -351,18 +353,20 @@ func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 			s.symbol, s.period, point.StartTime, point.Close)
 
 		lastPoint := &model.AggregatedKline{
-			Symbol:           point.Symbol,
-			Period:           point.Period,
-			Kind:             "kline",
-			StartTime:        point.StartTime,
-			Open:             point.Open,
-			High:             point.High,
-			Low:              point.Low,
-			Close:            point.Close,
-			Volume:           point.Volume,
-			CloseTime:        point.CloseTime,
-			QuoteAssetVolume: point.QuoteAssetVolume,
-			Trades:           point.Trades,
+			Symbol:               point.Symbol,
+			Period:               point.Period,
+			Kind:                 "kline",
+			StartTime:            point.StartTime,
+			Open:                 point.Open,
+			High:                 point.High,
+			Low:                  point.Low,
+			Close:                point.Close,
+			Volume:               point.Volume,
+			CloseTime:            point.CloseTime,
+			QuoteAssetVolume:     point.QuoteAssetVolume,
+			Trades:               point.Trades,
+			ActiveBuyVolume:      point.ActiveBuyVolume,
+			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
 		}
 
 		points = append(points, lastPoint)

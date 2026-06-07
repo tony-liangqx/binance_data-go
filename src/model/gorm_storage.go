@@ -22,22 +22,24 @@ func (s *GormStorage) GetDB() *gorm.DB {
 // Uses raw INSERT to avoid GORM Create incompatibilities with ClickHouse native protocol.
 func (s *GormStorage) Commit(point *SpotKlinePoint) error {
 	return s.db.Exec(
-		`INSERT INTO binance_spot_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO binance_spot_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		point.Symbol, point.Period, point.StartTime, point.DateTime,
 		point.Open, point.High, point.Low, point.Close,
 		point.Volume, point.QuoteAssetVolume, point.Trades, point.CloseTime,
+		point.ActiveBuyVolume, point.ActiveBuyQuoteVolume,
 	).Error
 }
 
 // CommitAggKline inserts an aggregated kline into the database.
 func (s *GormStorage) CommitAggKline(kline *AggBinanceSpotKline) error {
 	return s.db.Exec(
-		`INSERT INTO agg_binance_spot_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agg_binance_spot_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		kline.Symbol, kline.Period, kline.Volatility, kline.StartTime, kline.DateTime,
 		kline.Open, kline.High, kline.Low, kline.Close,
 		kline.Volume, kline.QuoteAssetVolume, kline.Trades, kline.CloseTime,
+		kline.ActiveBuyVolume, kline.ActiveBuyQuoteVolume,
 	).Error
 }
 
