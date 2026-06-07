@@ -232,28 +232,38 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 	}
 }
 
+// publish出去的数据兼容“1m数据格式”和“合并volatility数据”
+func (s *Subscriber) aggregatePoint(point *model.SpotKlinePoint) ([]*model.AggregatedKline, error) {
+	points := make([]*model.AggregatedKline, 0, len(s.aggregators)+1)
+	for _, aggregator := range s.aggregators {
+		agg, err := aggregator.Add(point)
+		if err != nil {
+			fmt.Printf("[volatility_data_writer(%s %s)] failed to add point to aggregator: %v\n", aggregator.Symbol(), aggregator.Volatility(), err)
+			return nil, err
+		}
+		if agg != nil {
+			points = append(points, agg)
+		}
+	}
+	return points, nil
+}
+
 func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 	{
-		// No existing data, save directly
 		// Commit会合并volatility数据
-		// TODO：publish出去的数据兼容“1m数据格式”和“合并volatility数据”
-		points := make([]*model.AggregatedKline, 0, len(s.aggregators)+1)
-		for _, aggregator := range s.aggregators {
-			agg, err := aggregator.Add(point)
-			if err != nil {
-				fmt.Printf("failed to add point to aggregator: %v\n", err)
-				// TODO:: 未来解决
-				panic(err)
-			}
-			if agg != nil {
-				points = append(points, agg)
-			}
-		}
-		if err := s.storage.Commit(point); err != nil {
-			fmt.Printf("failed to commit first kline: %v\n", err)
+		points, err := s.aggregatePoint(point)
+		if err != nil {
+			fmt.Printf("aggregator error: %v\n", err)
 			// TODO:: 未来解决
 			panic(err)
 		}
+
+		if err := s.storage.Commit(point); err != nil {
+			fmt.Printf("failed to commit kline error: %v\n", err)
+			// TODO:: 未来解决
+			panic(err)
+		}
+
 		fmt.Printf("[ws] saved kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
