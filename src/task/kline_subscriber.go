@@ -44,8 +44,6 @@ func NewSubscriber(storage model.Storage, symbol string, period string) *Subscri
 	}
 	return &Subscriber{
 		storage:     storage,
-		symbol:      symbol,
-		period:      period,
 		aggregators: aggregators,
 	}
 }
@@ -98,9 +96,87 @@ func (s *Subscriber) SyncDone() {
 	}
 }
 
+// alignWithKline backfills the volatility aggregation table (agg_binance_spot_kline) with
+// any klines that were saved to binance_spot_kline but not yet aggregated.
+//
+// It works in three steps:
+//  1. Get the latest CloseTime from agg_binance_spot_kline (the last aggregated window's end).
+//  2. Query binance_spot_kline for records where start_time > that CloseTime.
+//  3. Run each record through s.aggregatePoint so the VolatilityDataWriters rebuild their windows.
+//
+// This ensures that after a restart, volatility aggregation resumes from where it left off.
+func (s *Subscriber) alignWithKline() {
+	fmt.Println("start align with kline data task")
+	defer func() {
+		fmt.Println("align with kline data task completed")
+	}()
+
+	// 1. 获取AggBinanceSpotKline数据库中最后一条kline记录的Close时间戳
+	records := make([]*model.AggBinanceSpotKline, 0)
+	err := s.storage.GetDB().Raw(
+		`SELECT *
+FROM agg_binance_spot_kline
+WHERE (symbol, volatility, close_time) IN (
+    SELECT symbol, volatility, MAX(close_time)
+    FROM agg_binance_spot_kline
+    GROUP BY symbol, volatility
+)`,
+	).Scan(&records).Error
+	if err != nil {
+		fmt.Printf("[alignWithKline] %s %s failed to get last agg close_time: %v\n", s.symbol, s.period, err)
+		panic(err)
+	}
+
+	for _, record := range records {
+		symbol := record.Symbol
+		lastCloseTime := record.CloseTime
+		// 2. 获取BinanceSpotKline数据库中大于获取的Close时间戳的全部记录
+		var klines []model.BinanceSpotKline
+		err = s.storage.GetDB().Raw(
+			"SELECT * FROM binance_spot_kline WHERE symbol = ? AND start_time > ? ORDER BY start_time ASC",
+			symbol,
+			lastCloseTime,
+		).Scan(&klines).Error
+		if err != nil {
+			fmt.Printf("[alignWithKline] %s %s failed to query klines: %v\n", s.symbol, s.period, err)
+			panic(err)
+		}
+
+		fmt.Printf("[alignWithKline] %s %s found %d klines to align\n", s.symbol, s.period, len(klines))
+
+		// 3. 全部记录按时间顺序交给aggregatePoint处理
+		for _, kline := range klines {
+			point := &model.SpotKlinePoint{
+				Symbol:           kline.Symbol,
+				Period:           kline.Period,
+				StartTime:        kline.StartTime,
+				DateTime:         int64(kline.DateTime),
+				Open:             kline.Open,
+				High:             kline.High,
+				Low:              kline.Low,
+				Close:            kline.Close,
+				Volume:           kline.Volume,
+				QuoteAssetVolume: kline.QuoteAssetVolume,
+				Trades:           kline.Trades,
+				CloseTime:        kline.CloseTime,
+			}
+			_, err := s.aggregatePoint(point)
+			if err != nil {
+				fmt.Printf("[alignWithKline] %s %s failed to aggregate point: start_time=%d, err=%v\n",
+					s.symbol, s.period, point.StartTime, err)
+				panic(err)
+			}
+		}
+		fmt.Printf("[alignWithKline] %s %s alignment completed, processed %d klines\n",
+			s.symbol, s.period, len(klines))
+	}
+}
+
 // Start implements the Task interface and begins websocket subscription
 func (s *Subscriber) Start(timeStamp int64) {
+	// 对齐kline记录与volality数据库记录
 	s.setTimeStamp(timeStamp)
+	s.alignWithKline()
 	// 重试
 	for {
 		s.start()
