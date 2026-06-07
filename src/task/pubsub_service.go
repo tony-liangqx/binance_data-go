@@ -110,15 +110,25 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedK
 		return *(agg.FirstPoint())
 	}
 
+	var agg ISymbolAggregator
+	var point model.AggregatedKline
+	switch kind {
+	case "volatility":
+		agg = newVolatilityAggregator(symbol, period)
+		// 返回不同类型的数据
+		point = s.GetLatestPoint(symbol, kind, "1m")
+		point = *(agg.Add(&point))
+	default:
+		agg = newSymbolAggregator(symbol, period)
+		point = s.GetLatestPoint(symbol, kind, "1m")
+		point.Period = period
+		agg.SetFirstPoint(&point)
+	}
+
 	// TODO：聚合器初始化，访问数据库构造历史数据
-	agg := newSymbolAggregator(symbol, period)
 	agg.AddDefaultIndicators()
 	s.aggregators[key] = agg
 	s.subRefCounts[key] = 1
-
-	point := s.GetLatestPoint(symbol, kind, "1m")
-	point.Period = period
-	agg.SetFirstPoint(&point)
 
 	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
 		symbol, period, agg.PointsPerAgg(), len(agg.Indicators()))

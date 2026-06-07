@@ -30,7 +30,7 @@ type volatilityAggregator struct {
 
 // newVolatilityAggregator creates a new price - change - driven aggregator for
 // the given symbol / period.
-func newVolatilityAggregator(symbol, volatility string, storage model.Storage) *volatilityAggregator {
+func newVolatilityAggregator(symbol, volatility string) *volatilityAggregator {
 	return &volatilityAggregator{
 		symbol:     symbol,
 		volatility: volatility,
@@ -42,7 +42,7 @@ func newVolatilityAggregator(symbol, volatility string, storage model.Storage) *
 func (a *volatilityAggregator) Symbol() string { return a.symbol }
 
 // Period returns the aggregation period.
-func (a *volatilityAggregator) Period() string { return a.period }
+func (a *volatilityAggregator) Period() string { return a.volatility }
 
 // PointsPerAgg returns 1 since this aggregator is not count - based.
 func (a *volatilityAggregator) PointsPerAgg() int { return a.count }
@@ -51,6 +51,7 @@ func (a *volatilityAggregator) PointsPerAgg() int { return a.count }
 // Used during initialization to restore historical state.
 func (a *volatilityAggregator) SetFirstPoint(point *model.AggregatedKline) {
 	a.firstPoint = point
+	a.count = point.Count
 }
 
 // FirstPoint returns the first point of the current window, or nil.
@@ -75,7 +76,9 @@ func (a *volatilityAggregator) AddDefaultIndicators() {
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
 func (a *volatilityAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
+	a.SetFirstPoint(point)
 	copyed := *point
+	// 对外改变数据字段
 	copyed.Period = ""
 	copyed.Volatility = a.volatility
 	return &copyed

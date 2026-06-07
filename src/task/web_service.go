@@ -195,6 +195,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		s.subscribeTopic(topic, client.send)
 
 		// Parse symbol and period, and create aggregator for periods
+		// 如果是volatility类型，period为5、10、20等
 		symbol, kind, period, ok := parseStreamName(streamName)
 		if !ok {
 			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
