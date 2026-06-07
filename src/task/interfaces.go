@@ -21,15 +21,15 @@ type ISymbolAggregator interface {
 	// Period returns the aggregation period (e.g. "5m", "15m", "1h").
 	Period() string
 
-	// PointsPerAgg returns how many 1m points make one aggregated kline.
-	PointsPerAgg() int
-
 	// AddDefaultIndicators adds the default set of indicators and cold-starts them.
 	AddDefaultIndicators()
 
 	// SetFirstPoint sets the first point of the current aggregation window.
 	// Used during initialization to restore historical state.
 	SetFirstPoint(point *model.AggregatedKline)
+
+	// PointsPerAgg returns 1 since this aggregator is not count - based.
+	PointsPerAgg() int
 
 	// FirstPoint returns the first point of the current aggregation window,
 	// or nil if the window has not been initialized.

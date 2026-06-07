@@ -24,6 +24,16 @@ type VolatilityDataWriter struct {
 	// storage persists aggregated kline data to the database
 	storage Storage
 
+	// count of 1m points accumulated in the current aggregation window
+	count int
+
+	// running aggregates for the current window
+	high             float64
+	low              float64
+	volume           float64
+	quoteAssetVolume float64
+	trades           uint32
+
 	// previous aggregated kline ("上一个数据点")
 	firstPoint *AggBinanceSpotKline
 }
@@ -73,16 +83,63 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 			QuoteAssetVolume: point.QuoteAssetVolume,
 			Trades:           point.Trades,
 		}
-		return a.finalize(a.firstPoint)
+
+		a.high = point.High
+		a.low = point.Low
+
+		a.volume = point.Volume
+		a.quoteAssetVolume = point.QuoteAssetVolume
+		a.trades = point.Trades
+		a.count = 1
+
+		err := a.finalize(a.firstPoint)
+		if err != nil {
+			return nil, err
+		}
+		return a.makeAggregated(point), nil
+
 	}
+
+	a.count++
+
+	if point.High > a.high {
+		a.high = point.High
+	}
+	if point.Low < a.low {
+		a.low = point.Low
+	}
+	a.volume += point.Volume
+	a.quoteAssetVolume += point.QuoteAssetVolume
+	a.trades += point.Trades
 
 	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
 
 	if changePct > a.volatility {
-		point := &AggBinanceSpotKline{
+		newAgg := &AggBinanceSpotKline{
+			Symbol:     a.symbol,
+			Period:     a.period,
+			Volatility: a.Volatility(),
+			StartTime:  a.firstPoint.StartTime,
+			DateTime:   DateTimeMillis(point.DateTime),
+			Open:       a.firstPoint.Open,
+			High:       a.high,
+			Low:        a.low,
+			Close:      point.Close,
+			CloseTime:  point.CloseTime,
+			// 计算聚合值
+			Volume:           a.volume / float64(a.count),
+			QuoteAssetVolume: a.quoteAssetVolume / float64(a.count),
+			Trades:           a.trades / uint32(a.count),
+		}
+		err := a.finalize(newAgg)
+		if err != nil {
+			return nil, err
+		}
+
+		// Reset window state, using the current point as the start of the next window
+		a.firstPoint = &AggBinanceSpotKline{
 			Symbol:           point.Symbol,
 			Period:           point.Period,
-			Volatility:       a.Volatility(),
 			StartTime:        point.StartTime,
 			DateTime:         DateTimeMillis(point.DateTime),
 			Open:             point.Open,
@@ -94,58 +151,59 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 			QuoteAssetVolume: point.QuoteAssetVolume,
 			Trades:           point.Trades,
 		}
-		return a.finalize(point)
+
+		a.high = point.High
+		a.low = point.Low
+
+		a.volume = point.Volume
+		a.quoteAssetVolume = point.QuoteAssetVolume
+		a.trades = point.Trades
+		a.count = 1
+
+		return a.makeAggregated(point), nil
 	}
 
 	return nil, nil
 }
 
-// finalize builds the aggregated kline, resets the window, and runs indicators.
-func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*AggregatedKline, error) {
-	if a.firstPoint == nil {
-		return nil, nil
-	}
-
+func (a *VolatilityDataWriter) makeAggregated(point *SpotKlinePoint) *AggregatedKline {
+	// 返回的数据
 	agg := &AggregatedKline{
-		Symbol:           point.Symbol,
-		Period:           point.Period,
-		Volatility:       a.Volatility(),
-		StartTime:        point.StartTime,
-		Open:             point.Open,
-		High:             point.High,
-		Low:              point.Low,
-		Close:            point.Close,
-		Volume:           point.Volume,
-		CloseTime:        point.CloseTime,
-		QuoteAssetVolume: point.QuoteAssetVolume,
-		Trades:           point.Trades,
+		Symbol:     a.symbol,
+		Period:     a.period,
+		Volatility: a.Volatility(),
+		StartTime:  a.firstPoint.StartTime,
+		Open:       a.firstPoint.Open,
+		High:       a.high,
+		Low:        a.low,
+		Close:      point.Close,
+		CloseTime:  point.CloseTime,
+		// 计算聚合值
+		Volume:           a.volume / float64(a.count),
+		QuoteAssetVolume: a.quoteAssetVolume / float64(a.count),
+		Trades:           a.trades / uint32(a.count),
+		Count:            a.count,
 		Indicators:       make(map[string]any),
+	}
+	fmt.Printf("[volatility_data_writer] aggregated %s/%s: %d points, start=%d -> end=%d, changePct=%.4f%%\n",
+		a.symbol, a.Volatility(), a.count, agg.StartTime, agg.CloseTime,
+		(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
+	return agg
+}
+
+// finalize builds the aggregated kline, resets the window, and runs indicators.
+func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) error {
+	if a.firstPoint == nil {
+		return nil
 	}
 
 	// 写入数据库
 	if err := a.saveAggregated(point); err != nil {
 		fmt.Printf("[pubsub] failed to save aggregated kline: %v\n", err)
-		return nil, err
+		return err
 	}
-	fmt.Printf("[volatility_data_writer] aggregated %s/%s: start=%d -> end=%d, changePct=%.4f%%\n",
-		a.symbol, a.Volatility(), agg.StartTime, agg.CloseTime,
-		(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
-	a.firstPoint = &AggBinanceSpotKline{
-		Symbol:           point.Symbol,
-		Period:           point.Period,
-		Volatility:       a.Volatility(),
-		StartTime:        point.StartTime,
-		DateTime:         DateTimeMillis(point.DateTime),
-		Open:             point.Open,
-		High:             point.High,
-		Low:              point.Low,
-		Close:            point.Close,
-		Volume:           point.Volume,
-		CloseTime:        point.CloseTime,
-		QuoteAssetVolume: point.QuoteAssetVolume,
-		Trades:           point.Trades,
-	}
-	return agg, nil
+
+	return nil
 }
 
 // saveAggregated writes the aggregated kline to the AggBinanceSpotKline table.
