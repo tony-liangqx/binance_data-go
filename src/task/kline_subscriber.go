@@ -211,18 +211,20 @@ func (s *Subscriber) HandleKline(kline *binance.WsKline) {
 	}
 
 	point := &model.SpotKlinePoint{
-		Symbol:           s.symbol,
-		Period:           s.period,
-		StartTime:        kline.StartTime,
-		DateTime:         kline.StartTime,
-		Open:             mustParseFloat(kline.Open),
-		High:             mustParseFloat(kline.High),
-		Low:              mustParseFloat(kline.Low),
-		Close:            mustParseFloat(kline.Close),
-		Volume:           mustParseFloat(kline.Volume),
-		CloseTime:        kline.EndTime,
-		QuoteAssetVolume: mustParseFloat(kline.QuoteVolume),
-		Trades:           uint32(kline.TradeNum),
+		Symbol:               s.symbol,
+		Period:               s.period,
+		StartTime:            kline.StartTime,
+		DateTime:             kline.StartTime,
+		Open:                 mustParseFloat(kline.Open),
+		High:                 mustParseFloat(kline.High),
+		Low:                  mustParseFloat(kline.Low),
+		Close:                mustParseFloat(kline.Close),
+		Volume:               mustParseFloat(kline.Volume),
+		CloseTime:            kline.EndTime,
+		QuoteAssetVolume:     mustParseFloat(kline.QuoteVolume),
+		ActiveBuyVolume:      mustParseFloat(kline.ActiveBuyVolume),
+		ActiveBuyQuoteVolume: mustParseFloat(kline.ActiveBuyQuoteVolume),
+		Trades:               uint32(kline.TradeNum),
 	}
 
 	// Always track the latest websocket position, even during sync.

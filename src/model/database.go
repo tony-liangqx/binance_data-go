@@ -55,9 +55,11 @@ type BinanceSpotKline struct {
 	Low   float64 `gorm:"column:low;type:Float64;not null"`
 	Close float64 `gorm:"column:close;type:Float64;not null"`
 
-	Volume           float64 `gorm:"column:volume;type:Float64;not null;comment:成交量"`
-	QuoteAssetVolume float64 `gorm:"column:quote_asset_volume;type:Float64;not null"`
-	Trades           uint32  `gorm:"column:trades;type:UInt32;not null;comment:成交笔数"`
+	Volume               float64 `gorm:"column:volume;type:Float64;not null;comment:成交量"`
+	QuoteAssetVolume     float64 `gorm:"column:quote_asset_volume;type:Float64;not null"`
+	Trades               uint32  `gorm:"column:trades;type:UInt32;not null;comment:成交笔数"`
+	ActiveBuyVolume      float64 `gorm:"column:active_buy_volume;type:Float64;not null"`
+	ActiveBuyQuoteVolume float64 `gorm:"column:active_buy_quote_volume;type:Float64;not null"`
 
 	// 时间与状态
 	CloseTime int64 `gorm:"column:close_time;type:Int64;not null"`
@@ -83,9 +85,11 @@ type AggBinanceSpotKline struct {
 	Low   float64 `gorm:"column:low;type:Float64;not null"`
 	Close float64 `gorm:"column:close;type:Float64;not null"`
 
-	Volume           float64 `gorm:"column:volume;type:Float64;not null;comment:成交量"`
-	QuoteAssetVolume float64 `gorm:"column:quote_asset_volume;type:Float64;not null"`
-	Trades           uint32  `gorm:"column:trades;type:UInt32;not null;comment:成交笔数"`
+	Volume               float64 `gorm:"column:volume;type:Float64;not null;comment:成交量"`
+	QuoteAssetVolume     float64 `gorm:"column:quote_asset_volume;type:Float64;not null"`
+	Trades               uint32  `gorm:"column:trades;type:UInt32;not null;comment:成交笔数"`
+	ActiveBuyVolume      float64 `gorm:"column:active_buy_volume;type:Float64;not null"`
+	ActiveBuyQuoteVolume float64 `gorm:"column:active_buy_quote_volume;type:Float64;not null"`
 
 	// 时间与状态
 	CloseTime int64 `gorm:"column:close_time;type:Int64;not null"`
@@ -108,27 +112,31 @@ type SpotKlinePoint struct {
 	Close  float64 // DECIMAL(22,8) NOT NULL,
 	Volume float64 // DECIMAL(32,8) NOT NULL,
 
-	CloseTime        int64   // BIGINT NOT NULL,
-	QuoteAssetVolume float64 // DECIMAL(32,8) NOT NULL,
-	Trades           uint32  // INT UNSIGNED NOT NULL,
+	CloseTime            int64   // BIGINT NOT NULL,
+	QuoteAssetVolume     float64 // DECIMAL(32,8) NOT NULL,
+	Trades               uint32  // INT UNSIGNED NOT NULL,
+	ActiveBuyVolume      float64
+	ActiveBuyQuoteVolume float64
 }
 
 // AggregatedKline represents a single aggregated kline point produced
 // by aggregating multiple 1m klines over a user-specified period.
 type AggregatedKline struct {
-	Symbol           string         `json:"symbol"`
-	Period           string         `json:"period,omitempty"`
-	Kind             string         `json:"-"`
-	Volatility       string         `json:"volatility,omitempty"`
-	StartTime        int64          `json:"start_time"`
-	Open             float64        `json:"open"`
-	High             float64        `json:"high"`
-	Low              float64        `json:"low"`
-	Close            float64        `json:"close"`
-	Volume           float64        `json:"volume"`
-	QuoteAssetVolume float64        `json:"quote_asset_volume"`
-	Trades           uint32         `json:"trades"`
-	CloseTime        int64          `json:"close_time"`
-	Count            int            `json:"count"`
-	Indicators       map[string]any `json:"indicators,omitempty"`
+	Symbol               string         `json:"symbol"`
+	Period               string         `json:"period,omitempty"`
+	Kind                 string         `json:"-"`
+	Volatility           string         `json:"volatility,omitempty"`
+	StartTime            int64          `json:"start_time"`
+	Open                 float64        `json:"open"`
+	High                 float64        `json:"high"`
+	Low                  float64        `json:"low"`
+	Close                float64        `json:"close"`
+	Volume               float64        `json:"volume"`
+	QuoteAssetVolume     float64        `json:"quote_asset_volume"`
+	Trades               uint32         `json:"trades"`
+	CloseTime            int64          `json:"close_time"`
+	ActiveBuyVolume      float64        `json:"active_buy_volume"`
+	ActiveBuyQuoteVolume float64        `json:"active_buy_quote_volume"`
+	Count                int            `json:"count"`
+	Indicators           map[string]any `json:"indicators,omitempty"`
 }

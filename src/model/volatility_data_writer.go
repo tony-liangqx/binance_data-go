@@ -29,11 +29,13 @@ type VolatilityDataWriter struct {
 	count int
 
 	// running aggregates for the current window
-	high             float64
-	low              float64
-	volume           float64
-	quoteAssetVolume float64
-	trades           uint32
+	high                    float64
+	low                     float64
+	volume                  float64
+	quoteAssetVolume        float64
+	trades                  uint32
+	active_buy_volume       float64
+	active_buy_quote_volume float64
 
 	// previous aggregated kline ("上一个数据点")
 	firstPoint *AggBinanceSpotKline
@@ -78,19 +80,21 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 	if a.firstPoint == nil {
 		// First point of a new window: initialize all state
 		a.firstPoint = &AggBinanceSpotKline{
-			Symbol:           point.Symbol,
-			Period:           point.Period,
-			Volatility:       a.Volatility(),
-			StartTime:        point.StartTime,
-			DateTime:         DateTimeMillis(point.DateTime),
-			Open:             point.Open,
-			High:             point.High,
-			Low:              point.Low,
-			Close:            point.Close,
-			Volume:           point.Volume,
-			CloseTime:        point.CloseTime,
-			QuoteAssetVolume: point.QuoteAssetVolume,
-			Trades:           point.Trades,
+			Symbol:               point.Symbol,
+			Period:               point.Period,
+			Volatility:           a.Volatility(),
+			StartTime:            point.StartTime,
+			DateTime:             DateTimeMillis(point.DateTime),
+			Open:                 point.Open,
+			High:                 point.High,
+			Low:                  point.Low,
+			Close:                point.Close,
+			Volume:               point.Volume,
+			CloseTime:            point.CloseTime,
+			QuoteAssetVolume:     point.QuoteAssetVolume,
+			Trades:               point.Trades,
+			ActiveBuyVolume:      point.ActiveBuyVolume,
+			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
 		}
 
 		a.high = point.High
@@ -99,6 +103,8 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 		a.volume = point.Volume
 		a.quoteAssetVolume = point.QuoteAssetVolume
 		a.trades = point.Trades
+		a.active_buy_volume = point.ActiveBuyVolume
+		a.active_buy_quote_volume = point.ActiveBuyQuoteVolume
 		a.count = 1
 
 		agg, err := a.finalize(a.firstPoint)
@@ -124,6 +130,8 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 	a.volume += point.Volume
 	a.quoteAssetVolume += point.QuoteAssetVolume
 	a.trades += point.Trades
+	a.active_buy_volume += point.ActiveBuyVolume
+	a.active_buy_quote_volume += point.ActiveBuyQuoteVolume
 
 	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
 
@@ -140,9 +148,11 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 			Close:      point.Close,
 			CloseTime:  point.CloseTime,
 			// 计算聚合值
-			Volume:           a.volume,
-			QuoteAssetVolume: a.quoteAssetVolume,
-			Trades:           a.trades,
+			Volume:               a.volume,
+			QuoteAssetVolume:     a.quoteAssetVolume,
+			Trades:               a.trades,
+			ActiveBuyVolume:      a.active_buy_volume,
+			ActiveBuyQuoteVolume: a.active_buy_quote_volume,
 		}
 		agg, err := a.finalize(newAgg)
 		if err != nil {
@@ -155,19 +165,21 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 
 		// Reset window state, using the current point as the start of the next window
 		a.firstPoint = &AggBinanceSpotKline{
-			Symbol:           point.Symbol,
-			Period:           point.Period,
-			Volatility:       a.Volatility(),
-			StartTime:        point.StartTime,
-			DateTime:         DateTimeMillis(point.DateTime),
-			Open:             point.Open,
-			High:             point.High,
-			Low:              point.Low,
-			Close:            point.Close,
-			Volume:           point.Volume,
-			CloseTime:        point.CloseTime,
-			QuoteAssetVolume: point.QuoteAssetVolume,
-			Trades:           point.Trades,
+			Symbol:               point.Symbol,
+			Period:               point.Period,
+			Volatility:           a.Volatility(),
+			StartTime:            point.StartTime,
+			DateTime:             DateTimeMillis(point.DateTime),
+			Open:                 point.Open,
+			High:                 point.High,
+			Low:                  point.Low,
+			Close:                point.Close,
+			Volume:               point.Volume,
+			CloseTime:            point.CloseTime,
+			QuoteAssetVolume:     point.QuoteAssetVolume,
+			Trades:               point.Trades,
+			ActiveBuyVolume:      point.ActiveBuyVolume,
+			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
 		}
 
 		a.high = point.High
@@ -204,10 +216,12 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*Aggregated
 		Close:      point.Close,
 
 		// 计算聚合值
-		Volume:           point.Volume,
-		CloseTime:        point.CloseTime,
-		QuoteAssetVolume: point.QuoteAssetVolume,
-		Trades:           point.Trades,
+		Volume:               point.Volume,
+		CloseTime:            point.CloseTime,
+		QuoteAssetVolume:     point.QuoteAssetVolume,
+		Trades:               point.Trades,
+		ActiveBuyVolume:      point.ActiveBuyVolume,
+		ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
 
 		Count:      a.count,
 		Indicators: make(map[string]any),
