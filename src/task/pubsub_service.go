@@ -184,7 +184,7 @@ func (s *PubSubService) loadHistoricalData() {
 	// 1. Query BinanceSpotKline - latest record per (symbol, period)
 	var klines []model.BinanceSpotKline
 	err := db.Raw(`
-		SELECT a.* FROM binance_spot_kline a
+		SELECT a.*, 'kline' AS kind FROM binance_spot_kline a
 		INNER JOIN (
 			SELECT symbol, period, MAX(start_time) AS max_start_time
 			FROM binance_spot_kline
@@ -216,7 +216,7 @@ func (s *PubSubService) loadHistoricalData() {
 	// 2. Query AggBinanceSpotKline - latest record per (symbol, volatility)
 	var aggKlines []model.AggBinanceSpotKline
 	err = db.Raw(`
-		SELECT a.* FROM agg_binance_spot_kline a
+		SELECT a.*, 'kline' AS kind FROM agg_binance_spot_kline a
 		INNER JOIN (
 			SELECT symbol, volatility, MAX(start_time) AS max_start_time
 			FROM agg_binance_spot_kline

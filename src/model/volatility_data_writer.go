@@ -20,6 +20,7 @@ type VolatilityDataWriter struct {
 	symbol     string
 	period     string
 	volatility float64
+	kind       string
 
 	// storage persists aggregated kline data to the database
 	storage Storage
@@ -51,6 +52,7 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 		return &VolatilityDataWriter{
 			symbol:     symbol,
 			volatility: volatility,
+			kind:       "volatility",
 			storage:    storage,
 			firstPoint: lastPoint,
 		}
@@ -193,6 +195,7 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*Aggregated
 	agg := &AggregatedKline{
 		Symbol:     point.Symbol,
 		Period:     point.Period,
+		Kind:       a.kind,
 		Volatility: a.Volatility(),
 		StartTime:  point.StartTime,
 		Open:       point.Open,

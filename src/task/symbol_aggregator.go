@@ -15,6 +15,7 @@ import (
 type symbolAggregator struct {
 	symbol string
 	period string
+	kind   string
 
 	// pointsPerAgg is how many 1m points make one aggregated kline
 	// (e.g. 5 for 5m, 15 for 15m)
@@ -47,6 +48,7 @@ func newSymbolAggregator(symbol, period string) *symbolAggregator {
 	return &symbolAggregator{
 		symbol:       symbol,
 		period:       period,
+		kind:         "kline",
 		pointsPerAgg: pointsPerAgg,
 		indicators:   make([]IIndicator, 0),
 	}
@@ -84,6 +86,10 @@ func (a *symbolAggregator) Indicators() []IIndicator { return a.indicators }
 // all indicators, and returns the result. Returns nil if more points are
 // needed to complete the current window.
 func (a *symbolAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
+	if point.Kind != a.kind {
+		return nil
+	}
+
 	point.Period = a.period
 	if a.count == 0 {
 		// First point of a new window: initialize all state

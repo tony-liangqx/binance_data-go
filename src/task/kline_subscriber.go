@@ -322,6 +322,7 @@ func (s *Subscriber) aggregatePoint(point *model.SpotKlinePoint) ([]*model.Aggre
 			return nil, err
 		}
 		if agg != nil {
+			agg.Kind = "volatility"
 			points = append(points, agg)
 		}
 	}
@@ -350,6 +351,7 @@ func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 		lastPoint := &model.AggregatedKline{
 			Symbol:           point.Symbol,
 			Period:           point.Period,
+			Kind:             "kline",
 			StartTime:        point.StartTime,
 			Open:             point.Open,
 			High:             point.High,
