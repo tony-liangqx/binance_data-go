@@ -138,7 +138,7 @@ func (h *klinesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		fmt.Printf("[klines-api] query error: %v\n", err)
-		writeAPIError(w, -1001, "Internal error: failed to query kline data.")
+		writeAPIError(w, -1001, fmt.Sprintf("Internal error: failed to query kline data. %s", err.Error()))
 		return
 	}
 
@@ -228,8 +228,8 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 		sum(volume) AS volume,
 		sum(quote_asset_volume) AS quote_asset_volume,
 		sum(trades) AS trades,
-		sum(active_buy_volume) AS active_buy_volume,
-		sum(active_buy_quote_volume) AS active_buy_quote_volume,
+		sum(taker_buy_base_asset_volume) AS taker_buy_base_asset_volume,
+		sum(taker_buy_quote_asset_volume) AS taker_buy_quote_asset_volume,
 		argMax(close_time, start_time) AS close_time,
 		argMax(dt, start_time) AS dt
 	FROM (
@@ -237,8 +237,8 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 			symbol,
 			%s AS bucket_start,
 			start_time, open, high, low, close, volume,
-			quote_asset_volume, trades, active_buy_volume,
-			active_buy_quote_volume, close_time, dt
+			quote_asset_volume, trades, taker_buy_base_asset_volume,
+			taker_buy_quote_asset_volume, close_time, dt
 		FROM binance_futures_kline
 		WHERE %s
 	)
@@ -246,14 +246,14 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 	ORDER BY bucket_start ASC
 	LIMIT ?
 `, bucketExpr, whereClause)
-
+	fmt.Printf("sql :%s\n", sql)
 	// Args order: [period, whereClause args..., limit]
 	queryArgs := make([]any, 0, len(args)+2)
 	queryArgs = append(queryArgs, interval) // for `? AS period`
 	queryArgs = append(queryArgs, args...)  // for WHERE clause
 	queryArgs = append(queryArgs, limit)    // for LIMIT ?
 
-	if err := db.Raw(sql, queryArgs...).Scan(&klines).Error; err != nil {
+	if err := db.Debug().Raw(sql, queryArgs...).Scan(&klines).Error; err != nil {
 		return nil, err
 	}
 	return klines, nil

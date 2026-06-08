@@ -20,20 +20,21 @@ type volatilityHandler struct {
 
 // volatilityRecord represents a single volatility kline in the JSON response.
 type volatilityRecord struct {
-	Symbol               string  `json:"symbol"`
-	Period               string  `json:"-"`
-	Volatility           string  `json:"volatility"`
-	StartTime            int64   `json:"start_time"`
-	Open                 float64 `json:"open"`
-	High                 float64 `json:"high"`
-	Low                  float64 `json:"low"`
-	Close                float64 `json:"close"`
-	Volume               float64 `json:"volume"`
-	QuoteAssetVolume     float64 `json:"quote_asset_volume"`
-	Trades               uint32  `json:"trades"`
-	ActiveBuyVolume      float64 `json:"active_buy_volume"`
-	ActiveBuyQuoteVolume float64 `json:"active_buy_quote_volume"`
-	CloseTime            int64   `json:"close_time"`
+	Symbol                   string  `json:"symbol"`
+	Period                   string  `json:"-"`
+	Volatility               string  `json:"volatility"`
+	StartTime                int64   `json:"start_time"`
+	Open                     float64 `json:"open"`
+	High                     float64 `json:"high"`
+	Low                      float64 `json:"low"`
+	Close                    float64 `json:"close"`
+	Volume                   float64 `json:"volume"`
+	QuoteAssetVolume         float64 `json:"quote_asset_volume"`
+	Trades                   uint32  `json:"trades"`
+	TakerBuyBaseAssetVolume  float64 `json:"taker_buy_base_asset_volume"`
+	TakerBuyQuoteAssetVolume float64 `json:"taker_buy_quote_asset_volume"`
+	CloseTime                int64   `json:"close_time"`
+	Count                    int     `json:"count"`
 }
 
 // newVolatilityRecord builds a volatilityRecord from a model row.
@@ -41,18 +42,19 @@ func newVolatilityRecord(k *model.AggBinanceFutureKline) volatilityRecord {
 	return volatilityRecord{
 		Symbol: k.Symbol,
 		// Period:               k.Period,
-		Volatility:           k.Volatility,
-		StartTime:            k.StartTime,
-		Open:                 k.Open,
-		High:                 k.High,
-		Low:                  k.Low,
-		Close:                k.Close,
-		Volume:               k.Volume,
-		QuoteAssetVolume:     k.QuoteAssetVolume,
-		Trades:               k.Trades,
-		ActiveBuyVolume:      k.TakerBuyBaseAssetVolume,
-		ActiveBuyQuoteVolume: k.TakerBuyQuoteAssetVolume,
-		CloseTime:            k.CloseTime,
+		Volatility:               k.Volatility,
+		StartTime:                k.StartTime,
+		Open:                     k.Open,
+		High:                     k.High,
+		Low:                      k.Low,
+		Close:                    k.Close,
+		Volume:                   k.Volume,
+		QuoteAssetVolume:         k.QuoteAssetVolume,
+		Trades:                   k.Trades,
+		TakerBuyBaseAssetVolume:  k.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: k.TakerBuyQuoteAssetVolume,
+		CloseTime:                k.CloseTime,
+		Count:                    k.Count,
 	}
 }
 
@@ -178,7 +180,7 @@ func (h *volatilityHandler) queryVolatility(db *gorm.DB, symbol, interval string
 		query = query.Where("start_time <= ?", endTime)
 	}
 
-	query = query.Order("start_time ASC").Limit(limit)
+	query = query.Order("start_time DESC").Limit(limit)
 
 	if err := query.Scan(&klines).Error; err != nil {
 		return nil, err

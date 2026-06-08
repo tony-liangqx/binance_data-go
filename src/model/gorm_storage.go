@@ -34,12 +34,12 @@ func (s *GormStorage) Commit(point *FutureKlinePoint) error {
 // CommitAggKline inserts an aggregated kline into the database.
 func (s *GormStorage) CommitAggKline(kline *AggBinanceFutureKline) error {
 	return s.db.Exec(
-		`INSERT INTO agg_binance_futures_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, taker_buy_base_asset_volume, taker_buy_quote_asset_volume)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agg_binance_futures_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, taker_buy_base_asset_volume, taker_buy_quote_asset_volume, count)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		kline.Symbol, kline.Period, kline.Volatility, kline.StartTime, kline.DateTime,
 		kline.Open, kline.High, kline.Low, kline.Close,
 		kline.Volume, kline.QuoteAssetVolume, kline.Trades, kline.CloseTime,
-		kline.TakerBuyBaseAssetVolume, kline.TakerBuyQuoteAssetVolume,
+		kline.TakerBuyBaseAssetVolume, kline.TakerBuyQuoteAssetVolume, kline.Count,
 	).Error
 }
 

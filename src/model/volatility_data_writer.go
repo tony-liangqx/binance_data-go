@@ -125,6 +125,7 @@ func (a *VolatilityDataWriter) initInnerPoint(point *FutureKlinePoint) {
 		Trades:                   point.Trades,
 		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
 		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
+		Count:                    1,
 	}
 
 	a.high = point.High
@@ -142,6 +143,7 @@ func (a *VolatilityDataWriter) initInnerPoint(point *FutureKlinePoint) {
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
 func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKline, error) {
+	// 聚合后等待下一个数据点
 	if a.wait_new_point {
 		a.wait_new_point = false
 		a.initInnerPoint(point)
@@ -158,7 +160,7 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 		}
 		fmt.Printf("[volatility_data_writer] first aggregated %s/%s: %d points, start=%d -> end=%d, changePct=%.4f%%\n",
 			a.symbol, a.Volatility(), a.count, agg.StartTime, agg.CloseTime,
-			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
+			(math.Abs(point.Close-a.firstPoint.Open)/a.firstPoint.Open)*100)
 		return agg, nil
 
 	}
@@ -197,6 +199,7 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 			Trades:                   a.trades,
 			TakerBuyBaseAssetVolume:  a.active_buy_volume,
 			TakerBuyQuoteAssetVolume: a.active_buy_quote_volume,
+			Count:                    a.count,
 		}
 		agg, err := a.finalize(newAgg)
 		if err != nil {
@@ -247,7 +250,7 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*Aggregat
 		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
 		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
 
-		Count:      a.count,
+		Count:      point.Count,
 		Indicators: make(map[string]any),
 	}
 

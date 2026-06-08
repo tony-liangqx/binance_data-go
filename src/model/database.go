@@ -93,6 +93,8 @@ type AggBinanceFutureKline struct {
 
 	// 时间与状态
 	CloseTime int64 `gorm:"column:close_time;type:Int64;not null"`
+
+	Count int `gorm:"column:count;type:UInt32;not null;comment:聚合点数"`
 }
 
 // TableName 绑定表名
