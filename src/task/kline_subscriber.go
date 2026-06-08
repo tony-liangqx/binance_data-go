@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"binance.data.sync/src/model"
-	"github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/futures"
 )
 
 // Subscriber subscribes to Binance websocket kline data,
@@ -191,7 +191,7 @@ func (s *Subscriber) Start(timeStamp int64) {
 
 // start begins the actual websocket kline subscription loop
 func (s *Subscriber) start() {
-	doneC, stopC, err := binance.WsKlineServe(s.symbol, s.period, s.handleKline, s.handleError)
+	doneC, stopC, err := futures.WsKlineServe(s.symbol, s.period, s.handleKline, s.handleError)
 	if err != nil {
 		fmt.Printf("failed to start kline websocket: %v\n", err)
 		return
@@ -205,7 +205,7 @@ func (s *Subscriber) start() {
 	_ = stopC
 }
 
-func (s *Subscriber) HandleKline(kline *binance.WsKline) {
+func (s *Subscriber) HandleKline(kline *futures.WsKline) {
 	// Only process closed (finished) klines
 	if !kline.IsFinal {
 		return
@@ -253,7 +253,7 @@ func (s *Subscriber) HandleKline(kline *binance.WsKline) {
 // It always updates the timestamp. If a HistorySyncer is actively backfilling,
 // the point is buffered and replayed after sync completes — preventing data loss
 // when the syncer's targetTime was captured before this point arrived.
-func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
+func (s *Subscriber) handleKline(event *futures.WsKlineEvent) {
 	kline := event.Kline
 
 	s.HandleKline(&kline)

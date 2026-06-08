@@ -11,7 +11,7 @@ import (
 	"binance.data.sync/src/model"
 	"gorm.io/gorm"
 
-	"github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/futures"
 )
 
 // mockStorage implements model.Storage in-memory for integration testing.
@@ -174,7 +174,7 @@ func TestSubscriber_HandleKline_ContiguousData(t *testing.T) {
 		ts := baseTime + int64(i)*60000
 		price := startPrice + float64(i)*0.01 // price rises $0.01 per minute (~0.00002%)
 
-		kline := &binance.WsKline{
+		kline := &futures.WsKline{
 			StartTime:   ts,
 			EndTime:     ts + 60000 - 1,
 			Symbol:      symbol,
@@ -289,7 +289,7 @@ func TestSubscriber_HandleKline_NonFinalIsSkipped(t *testing.T) {
 	baseTime := int64(1700000000000)
 
 	// Feed a non-final kline — should be ignored
-	nonFinal := &binance.WsKline{
+	nonFinal := &futures.WsKline{
 		StartTime:   baseTime,
 		EndTime:     baseTime + 60000 - 1,
 		Symbol:      "ETHUSDT",
@@ -310,7 +310,7 @@ func TestSubscriber_HandleKline_NonFinalIsSkipped(t *testing.T) {
 	}
 
 	// Now feed a final kline — should be stored
-	final := &binance.WsKline{
+	final := &futures.WsKline{
 		StartTime:   baseTime,
 		EndTime:     baseTime + 60000 - 1,
 		Symbol:      "ETHUSDT",
@@ -608,8 +608,8 @@ func validateAggKline(t *testing.T, agg *model.AggBinanceFutureKline, symbol, pe
 
 // --- helpers ---
 
-func buildKline(symbol string, startTime int64, price float64, isFinal bool) *binance.WsKline {
-	return &binance.WsKline{
+func buildKline(symbol string, startTime int64, price float64, isFinal bool) *futures.WsKline {
+	return &futures.WsKline{
 		StartTime:   startTime,
 		EndTime:     startTime + 60000 - 1,
 		Symbol:      symbol,
