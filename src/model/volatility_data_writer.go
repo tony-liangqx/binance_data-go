@@ -177,7 +177,7 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 	a.active_buy_volume += point.TakerBuyBaseAssetVolume
 	a.active_buy_quote_volume += point.TakerBuyQuoteAssetVolume
 
-	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
+	changePct := (math.Abs(point.Close-a.firstPoint.Open) / point.Open) * 100
 
 	if changePct > a.volatility {
 		newAgg := &AggBinanceFutureKline{
