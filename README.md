@@ -68,3 +68,17 @@ Binance WS → Subscriber → DB（Symbol的`1m`数据）
     }
   }
 ```
+
+
+# 历史API
+```
+GET /fapi/v1/klines?symbol=<symbol>&interval=<period>&limit=<limit>
+
+GET /fapi/v1/volatility?symbol=<symbol>&interval=<5\10\20>&limit=<limit>
+```
+例子：
+```
+GET /fapi/v1/klines?symbol=btcusdt&interval=15m&limit=100
+
+GET /fapi/v1/volatility?symbol=btcusdt&interval=5&limit=100
+```

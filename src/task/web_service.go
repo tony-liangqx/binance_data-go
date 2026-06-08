@@ -129,6 +129,9 @@ func (s *WebSocketService) start() {
 	if s.storage != nil {
 		http.Handle("/fapi/v1/klines", &klinesHandler{storage: s.storage})
 		fmt.Printf("[http-server] registered REST API: /fapi/v1/klines\n")
+
+		http.Handle("/fapi/v1/volatility", &volatilityHandler{storage: s.storage})
+		fmt.Printf("[http-server] registered REST API: /fapi/v1/volatility\n")
 	}
 
 	fmt.Printf("[ws-server] starting WebSocket server on %s\n", s.addr)
