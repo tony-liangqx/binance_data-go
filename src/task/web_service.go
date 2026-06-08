@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"binance.data.sync/src/model"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gorilla/websocket"
 )
@@ -66,6 +67,10 @@ type WebSocketService struct {
 
 	// topics tracks MQTT topic subscriptions with reference counts
 	topics map[string]*topicSubscription
+
+	// storage is used by REST API handlers (e.g., /fapi/v1/klines)
+	// to query historical kline data from the database.
+	storage model.Storage
 }
 
 // NewWebSocketService creates a new WebSocketService with default settings.
@@ -96,6 +101,11 @@ func NewWebSocketServiceWithBroker(pubSrv *PubSubService, broker, addr string) *
 	}
 }
 
+// SetStorage sets the storage backend used by REST API handlers.
+func (s *WebSocketService) SetStorage(storage model.Storage) {
+	s.storage = storage
+}
+
 // Start begins the WebSocket server.
 func (s *WebSocketService) Start() {
 	s.start()
@@ -112,8 +122,14 @@ func (s *WebSocketService) start() {
 	s.mqttClient = client
 	fmt.Printf("[ws-server] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.mqttOpts.ClientID)
 
-	// Register HTTP handler
+	// Register WebSocket handler
 	http.HandleFunc("/stream", s.handleStream)
+
+	// Register REST API handlers
+	if s.storage != nil {
+		http.Handle("/fapi/v1/klines", &klinesHandler{storage: s.storage})
+		fmt.Printf("[http-server] registered REST API: /fapi/v1/klines\n")
+	}
 
 	fmt.Printf("[ws-server] starting WebSocket server on %s\n", s.addr)
 	if err := http.ListenAndServe(s.addr, nil); err != nil {

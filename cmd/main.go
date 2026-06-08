@@ -32,6 +32,7 @@ func main() {
 
 	// Create WebSocketService for streaming data to WebSocket clients
 	wsService := task.NewWebSocketService(pubSubService)
+	wsService.SetStorage(storage)
 	go wsService.Start()
 
 	// Create and start a Subscriber for each symbol/period pair
