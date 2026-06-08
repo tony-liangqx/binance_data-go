@@ -138,7 +138,7 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 	if changePct > a.volatility {
 		newAgg := &AggBinanceFutureKline{
 			Symbol:     a.symbol,
-			Period:     a.period,
+			Period:     point.Period,
 			Volatility: a.Volatility(),
 			StartTime:  a.firstPoint.StartTime,
 			DateTime:   DateTimeMillis(point.DateTime),
