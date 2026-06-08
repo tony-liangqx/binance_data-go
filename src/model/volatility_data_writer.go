@@ -39,6 +39,8 @@ type VolatilityDataWriter struct {
 
 	// previous aggregated kline ("上一个数据点")
 	firstPoint *AggBinanceFutureKline
+
+	wait_new_point bool
 }
 
 // NewVolatilityDataWriter creates a new price - change - driven aggregator for
@@ -49,16 +51,17 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 	if err != nil {
 		fmt.Printf("[volatility_data_writer(%s %s): %s\n", symbol, vName, err.Error())
 	}
-	if lastPoint != nil {
+	if lastPoint != nil && lastPoint.StartTime != 0 {
+		// 获取Kline的数据作为初始值
 		fmt.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
-		return &VolatilityDataWriter{
+		vd := &VolatilityDataWriter{
 			symbol:     symbol,
 			volatility: volatility,
 			kind:       "volatility",
 			storage:    storage,
-			firstPoint: lastPoint,
-			low:        lastPoint.Low,
 		}
+		vd.LoadData(lastPoint)
+		return vd
 	}
 	return &VolatilityDataWriter{
 		symbol:     symbol,
@@ -74,39 +77,79 @@ func (a *VolatilityDataWriter) Symbol() string { return a.symbol }
 // Period returns the aggregation period.
 func (a *VolatilityDataWriter) Volatility() string { return strconv.Itoa(int(a.volatility * 10)) }
 
+func (a *VolatilityDataWriter) LoadData(point *BinanceFutureKline) {
+	a.firstPoint = &AggBinanceFutureKline{
+		Symbol:                   point.Symbol,
+		Period:                   point.Period,
+		Volatility:               a.Volatility(),
+		StartTime:                point.StartTime,
+		DateTime:                 DateTimeMillis(point.DateTime),
+		Open:                     point.Open,
+		High:                     point.High,
+		Low:                      point.Low,
+		Close:                    point.Close,
+		Volume:                   point.Volume,
+		CloseTime:                point.CloseTime,
+		QuoteAssetVolume:         point.QuoteAssetVolume,
+		Trades:                   point.Trades,
+		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
+	}
+
+	a.high = point.High
+	a.low = point.Low
+
+	a.volume = point.Volume
+	a.quoteAssetVolume = point.QuoteAssetVolume
+	a.trades = point.Trades
+	a.active_buy_volume = point.TakerBuyBaseAssetVolume
+	a.active_buy_quote_volume = point.TakerBuyQuoteAssetVolume
+	a.count = 1
+}
+
+func (a *VolatilityDataWriter) initInnerPoint(point *FutureKlinePoint) {
+	// First point of a new window: initialize all state
+	a.firstPoint = &AggBinanceFutureKline{
+		Symbol:                   point.Symbol,
+		Period:                   point.Period,
+		Volatility:               a.Volatility(),
+		StartTime:                point.StartTime,
+		DateTime:                 DateTimeMillis(point.DateTime),
+		Open:                     point.Open,
+		High:                     point.High,
+		Low:                      point.Low,
+		Close:                    point.Close,
+		Volume:                   point.Volume,
+		CloseTime:                point.CloseTime,
+		QuoteAssetVolume:         point.QuoteAssetVolume,
+		Trades:                   point.Trades,
+		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
+	}
+
+	a.high = point.High
+	a.low = point.Low
+
+	a.volume = point.Volume
+	a.quoteAssetVolume = point.QuoteAssetVolume
+	a.trades = point.Trades
+	a.active_buy_volume = point.TakerBuyBaseAssetVolume
+	a.active_buy_quote_volume = point.TakerBuyQuoteAssetVolume
+	a.count = 1
+}
+
 // Add inserts a 1m point into the aggregator. When the price change percentage
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
 func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKline, error) {
+	if a.wait_new_point {
+		a.wait_new_point = false
+		a.initInnerPoint(point)
+		return nil, nil
+	}
 	if a.firstPoint == nil {
 		// First point of a new window: initialize all state
-		a.firstPoint = &AggBinanceFutureKline{
-			Symbol:               point.Symbol,
-			Period:               point.Period,
-			Volatility:           a.Volatility(),
-			StartTime:            point.StartTime,
-			DateTime:             DateTimeMillis(point.DateTime),
-			Open:                 point.Open,
-			High:                 point.High,
-			Low:                  point.Low,
-			Close:                point.Close,
-			Volume:               point.Volume,
-			CloseTime:            point.CloseTime,
-			QuoteAssetVolume:     point.QuoteAssetVolume,
-			Trades:               point.Trades,
-			ActiveBuyVolume:      point.ActiveBuyVolume,
-			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
-		}
-
-		a.high = point.High
-		a.low = point.Low
-
-		a.volume = point.Volume
-		a.quoteAssetVolume = point.QuoteAssetVolume
-		a.trades = point.Trades
-		a.active_buy_volume = point.ActiveBuyVolume
-		a.active_buy_quote_volume = point.ActiveBuyQuoteVolume
-		a.count = 1
+		a.initInnerPoint(point)
 
 		agg, err := a.finalize(a.firstPoint)
 		if err != nil {
@@ -131,8 +174,8 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 	a.volume += point.Volume
 	a.quoteAssetVolume += point.QuoteAssetVolume
 	a.trades += point.Trades
-	a.active_buy_volume += point.ActiveBuyVolume
-	a.active_buy_quote_volume += point.ActiveBuyQuoteVolume
+	a.active_buy_volume += point.TakerBuyBaseAssetVolume
+	a.active_buy_quote_volume += point.TakerBuyQuoteAssetVolume
 
 	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
 
@@ -149,11 +192,11 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 			Close:      point.Close,
 			CloseTime:  point.CloseTime,
 			// 计算聚合值
-			Volume:               a.volume,
-			QuoteAssetVolume:     a.quoteAssetVolume,
-			Trades:               a.trades,
-			ActiveBuyVolume:      a.active_buy_volume,
-			ActiveBuyQuoteVolume: a.active_buy_quote_volume,
+			Volume:                   a.volume,
+			QuoteAssetVolume:         a.quoteAssetVolume,
+			Trades:                   a.trades,
+			TakerBuyBaseAssetVolume:  a.active_buy_volume,
+			TakerBuyQuoteAssetVolume: a.active_buy_quote_volume,
 		}
 		agg, err := a.finalize(newAgg)
 		if err != nil {
@@ -165,33 +208,13 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
 
 		// Reset window state, using the current point as the start of the next window
-		a.firstPoint = &AggBinanceFutureKline{
-			Symbol:               point.Symbol,
-			Period:               point.Period,
-			Volatility:           a.Volatility(),
-			StartTime:            point.StartTime,
-			DateTime:             DateTimeMillis(point.DateTime),
-			Open:                 point.Open,
-			High:                 point.High,
-			Low:                  point.Low,
-			Close:                point.Close,
-			Volume:               point.Volume,
-			CloseTime:            point.CloseTime,
-			QuoteAssetVolume:     point.QuoteAssetVolume,
-			Trades:               point.Trades,
-			ActiveBuyVolume:      point.ActiveBuyVolume,
-			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
-		}
-
-		a.high = point.High
-		a.low = point.Low
-
-		a.volume = point.Volume
-		a.quoteAssetVolume = point.QuoteAssetVolume
-		a.trades = point.Trades
-		a.count = 1
-
+		// a.initInnerPoint(point)
+		a.wait_new_point = true
 		return agg, nil
+	} else {
+		fmt.Printf("[volatility_data_writer] %s %s %d points, start=%d, changePct=%.4f%%\n",
+			a.symbol, a.Volatility(), a.count, a.firstPoint.StartTime,
+			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
 	}
 
 	return nil, nil
@@ -217,12 +240,12 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*Aggregat
 		Close:      point.Close,
 
 		// 计算聚合值
-		Volume:               point.Volume,
-		CloseTime:            point.CloseTime,
-		QuoteAssetVolume:     point.QuoteAssetVolume,
-		Trades:               point.Trades,
-		ActiveBuyVolume:      point.ActiveBuyVolume,
-		ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
+		Volume:                   point.Volume,
+		CloseTime:                point.CloseTime,
+		QuoteAssetVolume:         point.QuoteAssetVolume,
+		Trades:                   point.Trades,
+		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
 
 		Count:      a.count,
 		Indicators: make(map[string]any),

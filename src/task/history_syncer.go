@@ -105,23 +105,23 @@ func (h *HistorySyncer) Sync() {
 
 		for _, k := range klines {
 			point := &model.FutureKlinePoint{
-				Symbol:           h.symbol,
-				Period:           h.period,
-				StartTime:        k.OpenTime,
-				DateTime:         k.OpenTime,
-				Open:             mustParseFloat(k.Open),
-				High:             mustParseFloat(k.High),
-				Low:              mustParseFloat(k.Low),
-				Close:            mustParseFloat(k.Close),
-				Volume:           mustParseFloat(k.Volume),
-				CloseTime:        k.CloseTime,
-				QuoteAssetVolume: mustParseFloat(k.QuoteAssetVolume),
-				Trades:           uint32(k.TradeNum),
+				Symbol:                   h.symbol,
+				Period:                   h.period,
+				StartTime:                k.OpenTime,
+				DateTime:                 k.OpenTime,
+				Open:                     mustParseFloat(k.Open),
+				High:                     mustParseFloat(k.High),
+				Low:                      mustParseFloat(k.Low),
+				Close:                    mustParseFloat(k.Close),
+				Volume:                   mustParseFloat(k.Volume),
+				CloseTime:                k.CloseTime,
+				QuoteAssetVolume:         mustParseFloat(k.QuoteAssetVolume),
+				Trades:                   uint32(k.TradeNum),
+				TakerBuyBaseAssetVolume:  mustParseFloat(k.TakerBuyBaseAssetVolume),
+				TakerBuyQuoteAssetVolume: mustParseFloat(k.TakerBuyQuoteAssetVolume),
 			}
 
 			h.savePointFunc(point)
-			fmt.Printf("[history] saved kline: %s %s start=%d close=%s\n",
-				h.symbol, h.period, k.OpenTime, k.Close)
 		}
 
 		// Check if we've caught up to the latest subscriber timestamp

@@ -133,6 +133,8 @@ func (s *Subscriber) alignWithKline() {
 	for _, record := range records {
 		symbol := record.Symbol
 		lastCloseTime := record.CloseTime
+		volatility := record.Volatility
+		fmt.Printf("[alignWithKline] last record %s %s close_time: %d\n", symbol, volatility, lastCloseTime)
 		// 2. 获取BinanceSpotKline数据库中大于获取的Close时间戳的全部记录
 		var klines []model.BinanceFutureKline
 		err = s.storage.GetDB().Raw(
@@ -150,20 +152,20 @@ func (s *Subscriber) alignWithKline() {
 		// 3. 全部记录按时间顺序交给aggregatePoint处理
 		for _, kline := range klines {
 			point := &model.FutureKlinePoint{
-				Symbol:               kline.Symbol,
-				Period:               kline.Period,
-				StartTime:            kline.StartTime,
-				DateTime:             int64(kline.DateTime),
-				Open:                 kline.Open,
-				High:                 kline.High,
-				Low:                  kline.Low,
-				Close:                kline.Close,
-				Volume:               kline.Volume,
-				QuoteAssetVolume:     kline.QuoteAssetVolume,
-				Trades:               kline.Trades,
-				CloseTime:            kline.CloseTime,
-				ActiveBuyVolume:      kline.ActiveBuyVolume,
-				ActiveBuyQuoteVolume: kline.ActiveBuyQuoteVolume,
+				Symbol:                   kline.Symbol,
+				Period:                   kline.Period,
+				StartTime:                kline.StartTime,
+				DateTime:                 int64(kline.DateTime),
+				Open:                     kline.Open,
+				High:                     kline.High,
+				Low:                      kline.Low,
+				Close:                    kline.Close,
+				Volume:                   kline.Volume,
+				QuoteAssetVolume:         kline.QuoteAssetVolume,
+				Trades:                   kline.Trades,
+				CloseTime:                kline.CloseTime,
+				TakerBuyBaseAssetVolume:  kline.TakerBuyBaseAssetVolume,
+				TakerBuyQuoteAssetVolume: kline.TakerBuyQuoteAssetVolume,
 			}
 			_, err := s.aggregatePoint(point)
 			if err != nil {
@@ -212,20 +214,20 @@ func (s *Subscriber) HandleKline(kline *futures.WsKline) {
 	}
 
 	point := &model.FutureKlinePoint{
-		Symbol:               s.symbol,
-		Period:               s.period,
-		StartTime:            kline.StartTime,
-		DateTime:             kline.StartTime,
-		Open:                 mustParseFloat(kline.Open),
-		High:                 mustParseFloat(kline.High),
-		Low:                  mustParseFloat(kline.Low),
-		Close:                mustParseFloat(kline.Close),
-		Volume:               mustParseFloat(kline.Volume),
-		CloseTime:            kline.EndTime,
-		QuoteAssetVolume:     mustParseFloat(kline.QuoteVolume),
-		ActiveBuyVolume:      mustParseFloat(kline.ActiveBuyVolume),
-		ActiveBuyQuoteVolume: mustParseFloat(kline.ActiveBuyQuoteVolume),
-		Trades:               uint32(kline.TradeNum),
+		Symbol:                   s.symbol,
+		Period:                   s.period,
+		StartTime:                kline.StartTime,
+		DateTime:                 kline.StartTime,
+		Open:                     mustParseFloat(kline.Open),
+		High:                     mustParseFloat(kline.High),
+		Low:                      mustParseFloat(kline.Low),
+		Close:                    mustParseFloat(kline.Close),
+		Volume:                   mustParseFloat(kline.Volume),
+		CloseTime:                kline.EndTime,
+		QuoteAssetVolume:         mustParseFloat(kline.QuoteVolume),
+		TakerBuyBaseAssetVolume:  mustParseFloat(kline.ActiveBuyVolume),
+		TakerBuyQuoteAssetVolume: mustParseFloat(kline.ActiveBuyQuoteVolume),
+		Trades:                   uint32(kline.TradeNum),
 	}
 
 	// Always track the latest websocket position, even during sync.
@@ -352,20 +354,20 @@ func (s *Subscriber) savePoint(point *model.FutureKlinePoint) error {
 			s.symbol, s.period, point.StartTime, point.Close)
 
 		lastPoint := &model.AggregatedFutureKline{
-			Symbol:               point.Symbol,
-			Period:               point.Period,
-			Kind:                 "kline",
-			StartTime:            point.StartTime,
-			Open:                 point.Open,
-			High:                 point.High,
-			Low:                  point.Low,
-			Close:                point.Close,
-			Volume:               point.Volume,
-			CloseTime:            point.CloseTime,
-			QuoteAssetVolume:     point.QuoteAssetVolume,
-			Trades:               point.Trades,
-			ActiveBuyVolume:      point.ActiveBuyVolume,
-			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
+			Symbol:                   point.Symbol,
+			Period:                   point.Period,
+			Kind:                     "kline",
+			StartTime:                point.StartTime,
+			Open:                     point.Open,
+			High:                     point.High,
+			Low:                      point.Low,
+			Close:                    point.Close,
+			Volume:                   point.Volume,
+			CloseTime:                point.CloseTime,
+			QuoteAssetVolume:         point.QuoteAssetVolume,
+			Trades:                   point.Trades,
+			TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+			TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
 		}
 
 		points = append(points, lastPoint)

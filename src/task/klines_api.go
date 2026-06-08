@@ -28,18 +28,18 @@ type klineRecord []any
 // Format: [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBaseVol, takerBuyQuoteVol, ignore]
 func newKlineRecord(k *model.BinanceFutureKline) klineRecord {
 	return klineRecord{
-		k.StartTime,                         // 0: Open time
-		formatFloat(k.Open),                 // 1: Open
-		formatFloat(k.High),                 // 2: High
-		formatFloat(k.Low),                  // 3: Low
-		formatFloat(k.Close),                // 4: Close
-		formatFloat(k.Volume),               // 5: Volume
-		k.CloseTime,                         // 6: Close time
-		formatFloat(k.QuoteAssetVolume),     // 7: Quote asset volume
-		k.Trades,                            // 8: Number of trades
-		formatFloat(k.ActiveBuyVolume),      // 9: Taker buy base asset volume
-		formatFloat(k.ActiveBuyQuoteVolume), // 10: Taker buy quote asset volume
-		"0",                                 // 11: Ignore
+		k.StartTime,                             // 0: Open time
+		formatFloat(k.Open),                     // 1: Open
+		formatFloat(k.High),                     // 2: High
+		formatFloat(k.Low),                      // 3: Low
+		formatFloat(k.Close),                    // 4: Close
+		formatFloat(k.Volume),                   // 5: Volume
+		k.CloseTime,                             // 6: Close time
+		formatFloat(k.QuoteAssetVolume),         // 7: Quote asset volume
+		k.Trades,                                // 8: Number of trades
+		formatFloat(k.TakerBuyBaseAssetVolume),  // 9: Taker buy base asset volume
+		formatFloat(k.TakerBuyQuoteAssetVolume), // 10: Taker buy quote asset volume
+		"0",                                     // 11: Ignore
 	}
 }
 

@@ -50,8 +50,8 @@ func newVolatilityRecord(k *model.AggBinanceFutureKline) volatilityRecord {
 		Volume:               k.Volume,
 		QuoteAssetVolume:     k.QuoteAssetVolume,
 		Trades:               k.Trades,
-		ActiveBuyVolume:      k.ActiveBuyVolume,
-		ActiveBuyQuoteVolume: k.ActiveBuyQuoteVolume,
+		ActiveBuyVolume:      k.TakerBuyBaseAssetVolume,
+		ActiveBuyQuoteVolume: k.TakerBuyQuoteAssetVolume,
 		CloseTime:            k.CloseTime,
 	}
 }

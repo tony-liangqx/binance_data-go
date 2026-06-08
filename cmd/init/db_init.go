@@ -19,11 +19,16 @@ func main() {
 	db := storage.GetDB()
 
 	// Auto migrate the schema
-	if err := db.AutoMigrate(&model.BinanceFutureKline{}); err != nil {
+	if err := db.
+		AutoMigrate(&model.BinanceFutureKline{}); err != nil {
 		panic(fmt.Errorf("failed to auto migrate: %w", err))
 	}
 
-	if err := db.AutoMigrate(&model.AggBinanceFutureKline{}); err != nil {
+	if err := db.Set("gorm:table_options", `
+ENGINE = ReplacingMergeTree()
+ORDER BY (symbol, period, volatility, start_time)
+PRIMARY KEY (symbol, period, volatility, start_time)
+`).AutoMigrate(&model.AggBinanceFutureKline{}); err != nil {
 		panic(fmt.Errorf("failed to auto migrate: %w", err))
 	}
 
@@ -81,8 +86,8 @@ func main() {
 				Trades:           uint32(k.TradeNum),
 				// Binance Futures REST kline has TakerBuyBaseAssetVolume /
 				// TakerBuyQuoteAssetVolume fields (not ActiveBuyVolume/ActiveBuyQuoteVolume)
-				ActiveBuyVolume:      mustParseFloat(k.TakerBuyBaseAssetVolume),
-				ActiveBuyQuoteVolume: mustParseFloat(k.TakerBuyQuoteAssetVolume),
+				TakerBuyBaseAssetVolume:  mustParseFloat(k.TakerBuyBaseAssetVolume),
+				TakerBuyQuoteAssetVolume: mustParseFloat(k.TakerBuyQuoteAssetVolume),
 			}
 
 			// 1) Save to BinanceFutureKline table

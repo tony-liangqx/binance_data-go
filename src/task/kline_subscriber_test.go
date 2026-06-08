@@ -69,16 +69,17 @@ func (m *mockStorage) GetLastTimeStamp(symbol string, period string) (int64, err
 	return entries[len(entries)-1].StartTime, nil
 }
 
-func (m *mockStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*model.AggBinanceFutureKline, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.lastVolCalls++
-	key := symbol + "|" + period + "|" + volatility
-	entries := m.aggKlines[key]
-	if len(entries) == 0 {
-		return nil, nil
-	}
-	return entries[len(entries)-1], nil
+func (m *mockStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*model.BinanceFutureKline, error) {
+	// m.mu.Lock()
+	// defer m.mu.Unlock()
+	// m.lastVolCalls++
+	// key := symbol + "|" + period + "|" + volatility
+	// entries := m.aggKlines[key]
+	// if len(entries) == 0 {
+	// 	return nil, nil
+	// }
+	// return entries[len(entries)-1], nil
+	return nil, nil
 }
 
 func (m *mockStorage) GetDB() *gorm.DB {
