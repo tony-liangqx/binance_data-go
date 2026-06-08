@@ -168,7 +168,7 @@ func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
 		symbol, period)
 }
 
-// 1. 从BinanceSpotKline和AggBinanceSpotKline数据库中查询最新记录
+// 1. 从BinanceFutureKline和AggBinanceFutureKline数据库中查询最新记录
 // 2. 将查询结果转换为AggregatedKline格式，通过updateLatestPoint方法直接更新到内容
 // 3. BinanceSpotKline数据记录通过GROUP BY (symbol, period)、获得symbol和period的分组，最新的一条记录
 // 4. AggBinanceSpotKline数据记录通过GROUP BY (symbol, volatility)获得symbol和volatility的分组，最新的一条记录
@@ -184,7 +184,7 @@ func (s *PubSubService) loadHistoricalData() {
 		return
 	}
 
-	// 1. Query BinanceSpotKline - latest record per (symbol, period)
+	// 1. Query BinanceFutureKline - latest record per (symbol, period)
 	var klines []model.BinanceFutureKline
 	err := db.Raw(`
 		SELECT a.*, 'kline' AS kind FROM binance_futures_kline a
@@ -195,7 +195,7 @@ func (s *PubSubService) loadHistoricalData() {
 		) b ON a.symbol = b.symbol AND a.period = b.period AND a.start_time = b.max_start_time
 	`).Scan(&klines).Error
 	if err != nil {
-		fmt.Printf("[pubsub] failed to load latest BinanceSpotKline: %v\n", err)
+		fmt.Printf("[pubsub] failed to load latest BinanceFutureKline: %v\n", err)
 	} else {
 		for _, k := range klines {
 			point := &model.AggregatedFutureKline{
@@ -216,7 +216,7 @@ func (s *PubSubService) loadHistoricalData() {
 		}
 	}
 
-	// 2. Query AggBinanceSpotKline - latest record per (symbol, volatility)
+	// 2. Query AggBinanceFutureKline - latest record per (symbol, volatility)
 	var aggKlines []model.AggBinanceFutureKline
 	err = db.Raw(`
 		SELECT a.*, 'kline' AS kind FROM agg_binance_futures_kline a
@@ -227,7 +227,7 @@ func (s *PubSubService) loadHistoricalData() {
 		) b ON a.symbol = b.symbol AND a.volatility = b.volatility AND a.start_time = b.max_start_time
 	`).Scan(&aggKlines).Error
 	if err != nil {
-		fmt.Printf("[pubsub] failed to load latest AggBinanceSpotKline: %v\n", err)
+		fmt.Printf("[pubsub] failed to load latest AggBinanceFutureKline: %v\n", err)
 	} else {
 		for _, k := range aggKlines {
 			point := &model.AggregatedFutureKline{

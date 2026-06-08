@@ -212,9 +212,9 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 		a.wait_new_point = true
 		return agg, nil
 	} else {
-		fmt.Printf("[volatility_data_writer] %s %s %d points, start=%d, changePct=%.4f%%\n",
+		fmt.Printf("[volatility_data_writer] %s %s %d points, start=%d, changePct=%.4f%% < %.4f\n",
 			a.symbol, a.Volatility(), a.count, a.firstPoint.StartTime,
-			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
+			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100, a.volatility)
 	}
 
 	return nil, nil
