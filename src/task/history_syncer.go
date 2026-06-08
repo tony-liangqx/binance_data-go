@@ -26,12 +26,12 @@ type HistorySyncer struct {
 	symbol        string
 	period        string
 	tsProvider    TimestampProvider
-	savePointFunc func(point *model.SpotKlinePoint) error
+	savePointFunc func(point *model.FutureKlinePoint) error
 }
 
 // NewHistorySyncer creates a new HistorySyncer instance.
 // tsProvider gives the syncer access to the Subscriber's latest websocket position.
-func NewHistorySyncer(storage model.Storage, symbol string, period string, lastTime int64, tsProvider TimestampProvider, savePointFunc func(point *model.SpotKlinePoint) error) *HistorySyncer {
+func NewHistorySyncer(storage model.Storage, symbol string, period string, lastTime int64, tsProvider TimestampProvider, savePointFunc func(point *model.FutureKlinePoint) error) *HistorySyncer {
 	return &HistorySyncer{
 		storage:       storage,
 		symbol:        symbol,
@@ -104,7 +104,7 @@ func (h *HistorySyncer) Sync() {
 		}
 
 		for _, k := range klines {
-			point := &model.SpotKlinePoint{
+			point := &model.FutureKlinePoint{
 				Symbol:           h.symbol,
 				Period:           h.period,
 				StartTime:        k.OpenTime,

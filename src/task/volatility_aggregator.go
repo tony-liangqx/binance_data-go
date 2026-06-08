@@ -23,7 +23,7 @@ type volatilityAggregator struct {
 	kind string
 
 	// first point of the current window — provides Open, StartTime and firstClose
-	firstPoint *model.AggregatedKline
+	firstPoint *model.AggregatedFutureKline
 	count      int
 
 	// indicators to calculate on each completed aggregated kline
@@ -52,13 +52,13 @@ func (a *volatilityAggregator) PointsPerAgg() int { return a.count }
 
 // SetFirstPoint sets the first point of the current aggregation window.
 // Used during initialization to restore historical state.
-func (a *volatilityAggregator) SetFirstPoint(point *model.AggregatedKline) {
+func (a *volatilityAggregator) SetFirstPoint(point *model.AggregatedFutureKline) {
 	a.firstPoint = point
 	a.count = point.Count
 }
 
 // FirstPoint returns the first point of the current window, or nil.
-func (a *volatilityAggregator) FirstPoint() *model.AggregatedKline {
+func (a *volatilityAggregator) FirstPoint() *model.AggregatedFutureKline {
 	return a.firstPoint
 }
 
@@ -78,7 +78,7 @@ func (a *volatilityAggregator) AddDefaultIndicators() {
 // Add inserts a 1m point into the aggregator. When the price change percentage
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
-func (a *volatilityAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
+func (a *volatilityAggregator) Add(point *model.AggregatedFutureKline) *model.AggregatedFutureKline {
 	if point == nil || point.Kind != a.kind {
 		return nil
 	}

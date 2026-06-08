@@ -25,7 +25,7 @@ type symbolAggregator struct {
 	count int
 
 	// first point of the current window — provides Open, StartTime
-	firstPoint *model.AggregatedKline
+	firstPoint *model.AggregatedFutureKline
 
 	// running aggregates for the current window
 	high             float64
@@ -73,10 +73,10 @@ func (a *symbolAggregator) Period() string { return a.period }
 func (a *symbolAggregator) PointsPerAgg() int { return a.pointsPerAgg }
 
 // SetFirstPoint sets the first point of the current aggregation window.
-func (a *symbolAggregator) SetFirstPoint(point *model.AggregatedKline) { a.firstPoint = point }
+func (a *symbolAggregator) SetFirstPoint(point *model.AggregatedFutureKline) { a.firstPoint = point }
 
 // FirstPoint returns the first point of the current window, or nil.
-func (a *symbolAggregator) FirstPoint() *model.AggregatedKline { return a.firstPoint }
+func (a *symbolAggregator) FirstPoint() *model.AggregatedFutureKline { return a.firstPoint }
 
 // Indicators returns the list of indicators attached to this aggregator.
 func (a *symbolAggregator) Indicators() []IIndicator { return a.indicators }
@@ -85,7 +85,7 @@ func (a *symbolAggregator) Indicators() []IIndicator { return a.indicators }
 // of points has been accumulated, it produces an aggregated kline, runs
 // all indicators, and returns the result. Returns nil if more points are
 // needed to complete the current window.
-func (a *symbolAggregator) Add(point *model.AggregatedKline) *model.AggregatedKline {
+func (a *symbolAggregator) Add(point *model.AggregatedFutureKline) *model.AggregatedFutureKline {
 	if point.Kind != a.kind {
 		return nil
 	}
@@ -131,12 +131,12 @@ func (a *symbolAggregator) Add(point *model.AggregatedKline) *model.AggregatedKl
 }
 
 // finalize builds the aggregated kline, resets the window, runs indicators.
-func (a *symbolAggregator) finalize(point *model.AggregatedKline) *model.AggregatedKline {
+func (a *symbolAggregator) finalize(point *model.AggregatedFutureKline) *model.AggregatedFutureKline {
 	if a.firstPoint == nil {
 		return nil
 	}
 
-	agg := &model.AggregatedKline{
+	agg := &model.AggregatedFutureKline{
 		Symbol:           a.symbol,
 		Period:           a.period,
 		StartTime:        a.firstPoint.StartTime,

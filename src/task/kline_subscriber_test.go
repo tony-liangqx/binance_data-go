@@ -19,10 +19,10 @@ type mockStorage struct {
 	mu sync.RWMutex
 
 	// klines keyed by "symbol|period", ordered by append
-	klines map[string][]*model.SpotKlinePoint
+	klines map[string][]*model.FutureKlinePoint
 
 	// aggKlines keyed by "symbol|period|volatility", ordered by append
-	aggKlines map[string][]*model.AggBinanceSpotKline
+	aggKlines map[string][]*model.AggBinanceFutureKline
 
 	// Track how many times each method was called for assertion
 	commitCalls    int
@@ -33,12 +33,12 @@ type mockStorage struct {
 
 func newMockStorage() *mockStorage {
 	return &mockStorage{
-		klines:    make(map[string][]*model.SpotKlinePoint),
-		aggKlines: make(map[string][]*model.AggBinanceSpotKline),
+		klines:    make(map[string][]*model.FutureKlinePoint),
+		aggKlines: make(map[string][]*model.AggBinanceFutureKline),
 	}
 }
 
-func (m *mockStorage) Commit(point *model.SpotKlinePoint) error {
+func (m *mockStorage) Commit(point *model.FutureKlinePoint) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commitCalls++
@@ -47,7 +47,7 @@ func (m *mockStorage) Commit(point *model.SpotKlinePoint) error {
 	return nil
 }
 
-func (m *mockStorage) CommitAggKline(kline *model.AggBinanceSpotKline) error {
+func (m *mockStorage) CommitAggKline(kline *model.AggBinanceFutureKline) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commitAggCalls++
@@ -69,7 +69,7 @@ func (m *mockStorage) GetLastTimeStamp(symbol string, period string) (int64, err
 	return entries[len(entries)-1].StartTime, nil
 }
 
-func (m *mockStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*model.AggBinanceSpotKline, error) {
+func (m *mockStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*model.AggBinanceFutureKline, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastVolCalls++
@@ -87,21 +87,21 @@ func (m *mockStorage) GetDB() *gorm.DB {
 
 // snapAggKlines returns a snapshot of stored aggregated klines for a given
 // symbol/period, across all volatility levels.
-func (m *mockStorage) snapAggKlines(symbol, period string) []*model.AggBinanceSpotKline {
+func (m *mockStorage) snapAggKlines(symbol, period string) []*model.AggBinanceFutureKline {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	// Collect all volatility levels under this symbol|period prefix
 	prefix := symbol + "|" + period + "|"
-	var all []*model.AggBinanceSpotKline
+	var all []*model.AggBinanceFutureKline
 	for key, entries := range m.aggKlines {
 		if strings.HasPrefix(key, prefix) {
 			all = append(all, entries...)
 		}
 	}
 	// Deep copy
-	cp := make([]*model.AggBinanceSpotKline, len(all))
+	cp := make([]*model.AggBinanceFutureKline, len(all))
 	for i, p := range all {
-		cp[i] = &model.AggBinanceSpotKline{
+		cp[i] = &model.AggBinanceFutureKline{
 			Symbol:           p.Symbol,
 			Period:           p.Period,
 			Volatility:       p.Volatility,
@@ -121,13 +121,13 @@ func (m *mockStorage) snapAggKlines(symbol, period string) []*model.AggBinanceSp
 }
 
 // snapKlines returns a snapshot of stored klines for a given symbol/period.
-func (m *mockStorage) snapKlines(symbol, period string) []*model.SpotKlinePoint {
+func (m *mockStorage) snapKlines(symbol, period string) []*model.FutureKlinePoint {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	key := symbol + "|" + period
-	cp := make([]*model.SpotKlinePoint, len(m.klines[key]))
+	cp := make([]*model.FutureKlinePoint, len(m.klines[key]))
 	for i, p := range m.klines[key] {
-		cp[i] = &model.SpotKlinePoint{
+		cp[i] = &model.FutureKlinePoint{
 			Symbol:           p.Symbol,
 			Period:           p.Period,
 			StartTime:        p.StartTime,
@@ -156,7 +156,7 @@ func TestSubscriber_HandleKline_ContiguousData(t *testing.T) {
 	sub := NewSubscriber(storage, symbol, period)
 
 	// Also verify the pointChan receives aggregated klines
-	pointCh := make(chan *model.AggregatedKline, 50)
+	pointCh := make(chan *model.AggregatedFutureKline, 50)
 	sub.SetPointChan(pointCh)
 
 	// --- Generate 100 contiguous 1m test points ---
@@ -250,7 +250,7 @@ func TestSubscriber_HandleKline_ContiguousData(t *testing.T) {
 		storage.commitCalls, storage.commitAggCalls, storage.lastTimeCalls, storage.lastVolCalls)
 
 	close(pointCh)
-	var received []*model.AggregatedKline
+	var received []*model.AggregatedFutureKline
 	for p := range pointCh {
 		received = append(received, p)
 	}
@@ -436,7 +436,7 @@ func TestSubscriber_SetPointChan(t *testing.T) {
 	storage := newMockStorage()
 	sub := NewSubscriber(storage, "DOTUSDT", "1m")
 
-	ch := make(chan *model.AggregatedKline, 10)
+	ch := make(chan *model.AggregatedFutureKline, 10)
 	sub.SetPointChan(ch)
 
 	baseTime := int64(1700000000000)
@@ -565,7 +565,7 @@ func TestSubscriber_GetTimeStamp(t *testing.T) {
 
 // validateAggKline checks that an aggregated kline matches expected source data.
 // expectedPrice is the `price` argument passed to buildKline or the raw Open price.
-func validateAggKline(t *testing.T, agg *model.AggBinanceSpotKline, symbol, period string, startTime int64, open, high, low, closeVal, volume, quoteVolume float64, trades uint32) {
+func validateAggKline(t *testing.T, agg *model.AggBinanceFutureKline, symbol, period string, startTime int64, open, high, low, closeVal, volume, quoteVolume float64, trades uint32) {
 	t.Helper()
 	if agg.Symbol != symbol {
 		t.Errorf("agg Symbol: expected %q, got %q", symbol, agg.Symbol)

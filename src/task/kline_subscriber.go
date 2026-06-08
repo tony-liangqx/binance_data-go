@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"binance.data.sync/src/model"
-
 	"github.com/adshao/go-binance/v2"
 )
 
@@ -28,11 +27,11 @@ type Subscriber struct {
 	// buffer holds kline points that arrived via websocket while a
 	// HistorySyncer was backfilling. They are drained in SyncDone,
 	// after the syncer's data has been committed to storage.
-	buffer []*model.SpotKlinePoint
+	buffer []*model.FutureKlinePoint
 
 	// pointChan is an optional channel for publishing processed points
 	// to external consumers (e.g., PubSubService for MQTT aggregation).
-	pointChan chan<- *model.AggregatedKline
+	pointChan chan<- *model.AggregatedFutureKline
 }
 
 // NewSubscriber creates a new Subscriber instance
@@ -51,7 +50,7 @@ func NewSubscriber(storage model.Storage, symbol string, period string) *Subscri
 }
 
 // SetPointChan sets the channel for publishing processed points to external consumers.
-func (s *Subscriber) SetPointChan(ch chan<- *model.AggregatedKline) {
+func (s *Subscriber) SetPointChan(ch chan<- *model.AggregatedFutureKline) {
 	s.pointChan = ch
 }
 
@@ -114,7 +113,7 @@ func (s *Subscriber) alignWithKline() {
 	}()
 
 	// 1. 获取AggBinanceSpotKline数据库中最后一条kline记录的Close时间戳
-	records := make([]*model.AggBinanceSpotKline, 0)
+	records := make([]*model.AggBinanceFutureKline, 0)
 	err := s.storage.GetDB().Raw(
 		`SELECT *
     FROM agg_binance_spot_kline
@@ -135,7 +134,7 @@ func (s *Subscriber) alignWithKline() {
 		symbol := record.Symbol
 		lastCloseTime := record.CloseTime
 		// 2. 获取BinanceSpotKline数据库中大于获取的Close时间戳的全部记录
-		var klines []model.BinanceSpotKline
+		var klines []model.BinanceFutureKline
 		err = s.storage.GetDB().Raw(
 			"SELECT * FROM binance_spot_kline WHERE symbol = ? AND start_time > ? ORDER BY start_time ASC",
 			symbol,
@@ -150,7 +149,7 @@ func (s *Subscriber) alignWithKline() {
 
 		// 3. 全部记录按时间顺序交给aggregatePoint处理
 		for _, kline := range klines {
-			point := &model.SpotKlinePoint{
+			point := &model.FutureKlinePoint{
 				Symbol:               kline.Symbol,
 				Period:               kline.Period,
 				StartTime:            kline.StartTime,
@@ -212,7 +211,7 @@ func (s *Subscriber) HandleKline(kline *binance.WsKline) {
 		return
 	}
 
-	point := &model.SpotKlinePoint{
+	point := &model.FutureKlinePoint{
 		Symbol:               s.symbol,
 		Period:               s.period,
 		StartTime:            kline.StartTime,
@@ -261,7 +260,7 @@ func (s *Subscriber) handleKline(event *binance.WsKlineEvent) {
 }
 
 // processPoint handles a closed kline point: checks gap, saves or triggers history sync.
-func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
+func (s *Subscriber) processPoint(point *model.FutureKlinePoint) error {
 	// TODO：查询是否导致性能问题？
 	lastTime, err := s.storage.GetLastTimeStamp(s.symbol, s.period)
 	if err != nil {
@@ -317,8 +316,8 @@ func (s *Subscriber) processPoint(point *model.SpotKlinePoint) error {
 }
 
 // publish出去的数据兼容“1m数据格式”和“合并volatility数据”
-func (s *Subscriber) aggregatePoint(point *model.SpotKlinePoint) ([]*model.AggregatedKline, error) {
-	points := make([]*model.AggregatedKline, 0, len(s.aggregators)+1)
+func (s *Subscriber) aggregatePoint(point *model.FutureKlinePoint) ([]*model.AggregatedFutureKline, error) {
+	points := make([]*model.AggregatedFutureKline, 0, len(s.aggregators)+1)
 	for _, aggregator := range s.aggregators {
 		agg, err := aggregator.Add(point)
 		if err != nil {
@@ -333,7 +332,7 @@ func (s *Subscriber) aggregatePoint(point *model.SpotKlinePoint) ([]*model.Aggre
 	return points, nil
 }
 
-func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
+func (s *Subscriber) savePoint(point *model.FutureKlinePoint) error {
 	{
 		// Commit会合并volatility数据
 		points, err := s.aggregatePoint(point)
@@ -352,7 +351,7 @@ func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 		fmt.Printf("[subscriber] saved kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
-		lastPoint := &model.AggregatedKline{
+		lastPoint := &model.AggregatedFutureKline{
 			Symbol:               point.Symbol,
 			Period:               point.Period,
 			Kind:                 "kline",
@@ -379,7 +378,7 @@ func (s *Subscriber) savePoint(point *model.SpotKlinePoint) error {
 
 // publishPoint sends the point to the external channel if one is configured.
 // Sends are non-blocking to avoid slowing down the subscriber.
-func (s *Subscriber) publishPoint(point *model.AggregatedKline) {
+func (s *Subscriber) publishPoint(point *model.AggregatedFutureKline) {
 	if s.pointChan != nil {
 		select {
 		case s.pointChan <- point:
@@ -413,7 +412,7 @@ func parseFloat(s string) (float64, error) {
 
 // bufferPoint safely appends a kline point to the buffer during sync.
 // Caller must hold no lock, or at most a read lock — this acquires the write lock.
-func (s *Subscriber) bufferPoint(point *model.SpotKlinePoint) {
+func (s *Subscriber) bufferPoint(point *model.FutureKlinePoint) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.buffer = append(s.buffer, point)

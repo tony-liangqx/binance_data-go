@@ -38,7 +38,7 @@ type VolatilityDataWriter struct {
 	active_buy_quote_volume float64
 
 	// previous aggregated kline ("上一个数据点")
-	firstPoint *AggBinanceSpotKline
+	firstPoint *AggBinanceFutureKline
 }
 
 // NewVolatilityDataWriter creates a new price - change - driven aggregator for
@@ -76,10 +76,10 @@ func (a *VolatilityDataWriter) Volatility() string { return strconv.Itoa(int(a.v
 // Add inserts a 1m point into the aggregator. When the price change percentage
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
-func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, error) {
+func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKline, error) {
 	if a.firstPoint == nil {
 		// First point of a new window: initialize all state
-		a.firstPoint = &AggBinanceSpotKline{
+		a.firstPoint = &AggBinanceFutureKline{
 			Symbol:               point.Symbol,
 			Period:               point.Period,
 			Volatility:           a.Volatility(),
@@ -136,7 +136,7 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
 
 	if changePct > a.volatility {
-		newAgg := &AggBinanceSpotKline{
+		newAgg := &AggBinanceFutureKline{
 			Symbol:     a.symbol,
 			Period:     a.period,
 			Volatility: a.Volatility(),
@@ -164,7 +164,7 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
 
 		// Reset window state, using the current point as the start of the next window
-		a.firstPoint = &AggBinanceSpotKline{
+		a.firstPoint = &AggBinanceFutureKline{
 			Symbol:               point.Symbol,
 			Period:               point.Period,
 			Volatility:           a.Volatility(),
@@ -197,14 +197,14 @@ func (a *VolatilityDataWriter) Add(point *SpotKlinePoint) (*AggregatedKline, err
 }
 
 // finalize builds the aggregated kline, resets the window, and runs indicators.
-func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*AggregatedKline, error) {
+func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*AggregatedFutureKline, error) {
 	// 写入数据库
 	if err := a.saveAggregated(point); err != nil {
 		return nil, err
 	}
 
 	// 返回的数据
-	agg := &AggregatedKline{
+	agg := &AggregatedFutureKline{
 		Symbol:     point.Symbol,
 		Period:     point.Period,
 		Kind:       a.kind,
@@ -231,7 +231,7 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceSpotKline) (*Aggregated
 }
 
 // saveAggregated writes the aggregated kline to the AggBinanceSpotKline table.
-func (a *VolatilityDataWriter) saveAggregated(agg *AggBinanceSpotKline) error {
+func (a *VolatilityDataWriter) saveAggregated(agg *AggBinanceFutureKline) error {
 	agg.DateTime = DateTimeMillis(time.Now().UnixMilli())
 
 	if err := a.storage.CommitAggKline(agg); err != nil {

@@ -25,7 +25,7 @@ func main() {
 		symbol := symbols[i%len(symbols)]
 		startTime := now.Add(-time.Duration(20-i) * time.Minute)
 
-		point := &model.SpotKlinePoint{
+		point := &model.FutureKlinePoint{
 			Symbol:           symbol,
 			Period:           period,
 			StartTime:        startTime.UnixMilli(),

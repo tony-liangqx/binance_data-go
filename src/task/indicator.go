@@ -66,7 +66,7 @@ func (s *SMAIndicator) ColdStart(symbol, period string) {
 }
 
 // Calculate updates the SMA with a new aggregated kline using a sliding window.
-func (s *SMAIndicator) Calculate(kline *model.AggregatedKline) {
+func (s *SMAIndicator) Calculate(kline *model.AggregatedFutureKline) {
 	if !s.ready {
 		// Auto cold-start if not ready
 		s.ColdStart(kline.Symbol, kline.Period)
@@ -132,7 +132,7 @@ func (v *VolumeDensityIndicator) ColdStart(symbol, period string) {
 }
 
 // Calculate updates the cumulative volume / count ratio with a new aggregated kline.
-func (v *VolumeDensityIndicator) Calculate(kline *model.AggregatedKline) {
+func (v *VolumeDensityIndicator) Calculate(kline *model.AggregatedFutureKline) {
 	if kline.Count > 0 {
 		v.current = kline.Volume / float64(kline.Count)
 	} else {

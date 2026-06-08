@@ -36,7 +36,7 @@ type PubSubService struct {
 	mqttOpts *mqtt.ClientOptions
 
 	// PointChan receives raw 1m kline points from Subscribers
-	PointChan chan *model.AggregatedKline
+	PointChan chan *model.AggregatedFutureKline
 
 	// storage persists aggregated kline data to the database
 	storage model.Storage
@@ -51,7 +51,7 @@ type PubSubService struct {
 	mqttClient mqtt.Client
 
 	// latestPoints caches the latest 1m point per symbol (key = symbol)
-	latestPoints map[string]*model.AggregatedKline
+	latestPoints map[string]*model.AggregatedFutureKline
 	latestMu     sync.RWMutex
 }
 
@@ -77,10 +77,10 @@ func NewPubSubServiceWithBroker(broker string) *PubSubService {
 		broker:       broker,
 		clientID:     clientID,
 		mqttOpts:     opts,
-		PointChan:    make(chan *model.AggregatedKline, 1024),
+		PointChan:    make(chan *model.AggregatedFutureKline, 1024),
 		aggregators:  make(map[string]ISymbolAggregator),
 		subRefCounts: make(map[string]int),
-		latestPoints: make(map[string]*model.AggregatedKline),
+		latestPoints: make(map[string]*model.AggregatedFutureKline),
 	}
 }
 
@@ -96,7 +96,7 @@ func (s *PubSubService) SetStorage(storage model.Storage) {
 // It maintains a reference counter for each (symbol, period). The aggregator
 // is only created on the first subscription and removed when the last
 // subscriber calls Unsubscribe.
-func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedKline {
+func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedFutureKline {
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 
 	s.mu.Lock()
@@ -111,7 +111,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedK
 	}
 
 	var agg ISymbolAggregator
-	var point model.AggregatedKline
+	var point model.AggregatedFutureKline
 	switch kind {
 	case "volatility":
 		agg = newVolatilityAggregator(symbol, period)
@@ -185,7 +185,7 @@ func (s *PubSubService) loadHistoricalData() {
 	}
 
 	// 1. Query BinanceSpotKline - latest record per (symbol, period)
-	var klines []model.BinanceSpotKline
+	var klines []model.BinanceFutureKline
 	err := db.Raw(`
 		SELECT a.*, 'kline' AS kind FROM binance_spot_kline a
 		INNER JOIN (
@@ -198,7 +198,7 @@ func (s *PubSubService) loadHistoricalData() {
 		fmt.Printf("[pubsub] failed to load latest BinanceSpotKline: %v\n", err)
 	} else {
 		for _, k := range klines {
-			point := &model.AggregatedKline{
+			point := &model.AggregatedFutureKline{
 				Symbol:           k.Symbol,
 				Period:           k.Period,
 				StartTime:        k.StartTime,
@@ -217,7 +217,7 @@ func (s *PubSubService) loadHistoricalData() {
 	}
 
 	// 2. Query AggBinanceSpotKline - latest record per (symbol, volatility)
-	var aggKlines []model.AggBinanceSpotKline
+	var aggKlines []model.AggBinanceFutureKline
 	err = db.Raw(`
 		SELECT a.*, 'kline' AS kind FROM agg_binance_spot_kline a
 		INNER JOIN (
@@ -230,7 +230,7 @@ func (s *PubSubService) loadHistoricalData() {
 		fmt.Printf("[pubsub] failed to load latest AggBinanceSpotKline: %v\n", err)
 	} else {
 		for _, k := range aggKlines {
-			point := &model.AggregatedKline{
+			point := &model.AggregatedFutureKline{
 				Symbol:           k.Symbol,
 				Period:           k.Period,
 				Volatility:       k.Volatility,
@@ -295,7 +295,7 @@ func (s *PubSubService) start() {
 }
 
 // updateLatestPoint caches the latest 1m kline point per symbol.
-func (s *PubSubService) updateLatestPoint(point *model.AggregatedKline) {
+func (s *PubSubService) updateLatestPoint(point *model.AggregatedFutureKline) {
 	symbol := point.Symbol
 	var period string
 	var kind string
@@ -317,7 +317,7 @@ func (s *PubSubService) updateLatestPoint(point *model.AggregatedKline) {
 
 // GetLatestPoint returns the latest cached 1m kline point for the given symbol.
 // Returns an empty SpotKlinePoint if no data is cached.
-func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.AggregatedKline {
+func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.AggregatedFutureKline {
 	// Note: the period parameter is currently unused — the cache stores
 	// the latest 1m point per symbol regardless of period.
 	// This matches the existing caller in WebSocketService which always
@@ -335,18 +335,18 @@ func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.Aggreg
 		} else {
 			fmt.Printf("[pubsub] latest points: %s\n", buf)
 		}
-		return model.AggregatedKline{}
+		return model.AggregatedFutureKline{}
 	}
 	return *point
 }
 
 // addPoint feeds a 1m point to all aggregators that match the point's symbol.
 // Returns any aggregated klines that were completed by this point.
-func (s *PubSubService) addPoint(point *model.AggregatedKline) []*model.AggregatedKline {
+func (s *PubSubService) addPoint(point *model.AggregatedFutureKline) []*model.AggregatedFutureKline {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var results []*model.AggregatedKline
+	var results []*model.AggregatedFutureKline
 
 	for key, agg := range s.aggregators {
 		fmt.Printf("debug: aggregators: %v\n", key)
@@ -375,7 +375,7 @@ func (s *PubSubService) addPoint(point *model.AggregatedKline) []*model.Aggregat
 }
 
 // publishAggregated publishes the aggregated kline to the MQTT broker.
-func (s *PubSubService) publishAggregated(agg *model.AggregatedKline) {
+func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 	var topic string
 	switch agg.Volatility {
 	case "":

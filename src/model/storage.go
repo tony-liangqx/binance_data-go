@@ -3,9 +3,9 @@ package model
 import "gorm.io/gorm"
 
 type Storage interface {
-	Commit(point *SpotKlinePoint) error
-	CommitAggKline(kline *AggBinanceSpotKline) error
+	Commit(point *FutureKlinePoint) error
+	CommitAggKline(kline *AggBinanceFutureKline) error
 	GetLastTimeStamp(symbol string, period string) (int64, error)
-	GetLastVolatilityPoint(symbol string, period string, volatility string) (*AggBinanceSpotKline, error)
+	GetLastVolatilityPoint(symbol string, period string, volatility string) (*AggBinanceFutureKline, error)
 	GetDB() *gorm.DB
 }

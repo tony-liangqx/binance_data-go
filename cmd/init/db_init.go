@@ -15,11 +15,11 @@ func main() {
 	db := storage.GetDB()
 
 	// Auto migrate the schema
-	if err := db.AutoMigrate(&model.BinanceSpotKline{}); err != nil {
+	if err := db.AutoMigrate(&model.BinanceFutureKline{}); err != nil {
 		panic(fmt.Errorf("failed to auto migrate: %w", err))
 	}
 
-	if err := db.AutoMigrate(&model.AggBinanceSpotKline{}); err != nil {
+	if err := db.AutoMigrate(&model.AggBinanceFutureKline{}); err != nil {
 		panic(fmt.Errorf("failed to auto migrate: %w", err))
 	}
 

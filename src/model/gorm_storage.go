@@ -20,7 +20,7 @@ func (s *GormStorage) GetDB() *gorm.DB {
 
 // Commit inserts a kline point into the database.
 // Uses raw INSERT to avoid GORM Create incompatibilities with ClickHouse native protocol.
-func (s *GormStorage) Commit(point *SpotKlinePoint) error {
+func (s *GormStorage) Commit(point *FutureKlinePoint) error {
 	return s.db.Exec(
 		`INSERT INTO binance_spot_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -32,7 +32,7 @@ func (s *GormStorage) Commit(point *SpotKlinePoint) error {
 }
 
 // CommitAggKline inserts an aggregated kline into the database.
-func (s *GormStorage) CommitAggKline(kline *AggBinanceSpotKline) error {
+func (s *GormStorage) CommitAggKline(kline *AggBinanceFutureKline) error {
 	return s.db.Exec(
 		`INSERT INTO agg_binance_spot_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -60,8 +60,8 @@ func (s *GormStorage) GetLastTimeStamp(symbol string, period string) (int64, err
 
 // Returns 0 if no records exist.
 // Uses Raw SQL to avoid GORM query builder incompatibilities with ClickHouse native protocol.
-func (s *GormStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*AggBinanceSpotKline, error) {
-	var point AggBinanceSpotKline
+func (s *GormStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*AggBinanceFutureKline, error) {
+	var point AggBinanceFutureKline
 	// 执行查询
 	result := s.db.Raw(
 		"SELECT * FROM agg_binance_spot_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
