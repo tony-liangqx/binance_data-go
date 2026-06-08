@@ -45,7 +45,7 @@ type VolatilityDataWriter struct {
 // the given symbol / period.
 func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage) *VolatilityDataWriter {
 	vName := strconv.Itoa(int(volatility * 10))
-	lastPoint, err := storage.GetLastVolatilityPoint(symbol, "1m", strconv.Itoa(int(volatility*10)))
+	lastPoint, err := storage.GetLastVolatilityPoint(symbol, "1m", vName)
 	if err != nil {
 		fmt.Printf("[volatility_data_writer(%s %s): %s\n", symbol, vName, err.Error())
 	}
@@ -57,6 +57,7 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 			kind:       "volatility",
 			storage:    storage,
 			firstPoint: lastPoint,
+			low:        lastPoint.Low,
 		}
 	}
 	return &VolatilityDataWriter{
