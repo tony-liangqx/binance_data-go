@@ -67,7 +67,7 @@ type BinanceFutureKline struct {
 
 // TableName 绑定表名
 func (BinanceFutureKline) TableName() string {
-	return "binance_spot_kline"
+	return "binance_futures_kline"
 }
 
 type AggBinanceFutureKline struct {
@@ -97,7 +97,7 @@ type AggBinanceFutureKline struct {
 
 // TableName 绑定表名
 func (AggBinanceFutureKline) TableName() string {
-	return "agg_binance_spot_kline"
+	return "agg_binance_futures_kline"
 }
 
 type FutureKlinePoint struct {

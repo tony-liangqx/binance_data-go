@@ -23,5 +23,5 @@ func main() {
 		panic(fmt.Errorf("failed to auto migrate: %w", err))
 	}
 
-	fmt.Println("database table 'binance_spot_kline' created successfully")
+	fmt.Println("database table 'binance_futures_kline' created successfully")
 }

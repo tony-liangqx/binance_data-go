@@ -1,4 +1,4 @@
-CREATE TABLE `binance_spot_kline` (
+CREATE TABLE `binance_futures_kline` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
   `symbol` VARCHAR(20) NOT NULL COMMENT '交易对',

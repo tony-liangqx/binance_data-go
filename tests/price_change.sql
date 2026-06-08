@@ -9,7 +9,7 @@ RawData AS (
         volume,
         -- 关键：按 币种+周期 分区，单独取上一条，不跨币计算
         lag(close, 1) OVER (PARTITION BY symbol, period ORDER BY start_time) AS prev_close
-    FROM binance_spot_kline
+    FROM binance_futures_kline
 ),
 MarkBuckets AS (
     SELECT
@@ -76,7 +76,7 @@ RawData AS (
         volume,
         -- 关键：按 币种+周期 分区，单独取上一条，不跨币计算
         lag(close, 1) OVER (PARTITION BY symbol, period ORDER BY start_time) AS prev_close
-    FROM binance_spot_kline
+    FROM binance_futures_kline
 )
 SELECT
     symbol,
@@ -104,7 +104,7 @@ RawData AS (
         volume,
         -- 关键：按 币种+周期 分区，单独取上一条，不跨币计算
         lag(close, 1) OVER (PARTITION BY symbol, period ORDER BY start_time) AS prev_close
-    FROM binance_spot_kline
+    FROM binance_futures_kline
 ),
 MarkBuckets AS (
     SELECT

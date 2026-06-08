@@ -97,12 +97,12 @@ func (s *Subscriber) SyncDone() {
 	}
 }
 
-// alignWithKline backfills the volatility aggregation table (agg_binance_spot_kline) with
-// any klines that were saved to binance_spot_kline but not yet aggregated.
+// alignWithKline backfills the volatility aggregation table (agg_binance_futures_kline) with
+// any klines that were saved to binance_futures_kline but not yet aggregated.
 //
 // It works in three steps:
-//  1. Get the latest CloseTime from agg_binance_spot_kline (the last aggregated window's end).
-//  2. Query binance_spot_kline for records where start_time > that CloseTime.
+//  1. Get the latest CloseTime from agg_binance_futures_kline (the last aggregated window's end).
+//  2. Query binance_futures_kline for records where start_time > that CloseTime.
 //  3. Run each record through s.aggregatePoint so the VolatilityDataWriters rebuild their windows.
 //
 // This ensures that after a restart, volatility aggregation resumes from where it left off.
@@ -116,11 +116,11 @@ func (s *Subscriber) alignWithKline() {
 	records := make([]*model.AggBinanceFutureKline, 0)
 	err := s.storage.GetDB().Raw(
 		`SELECT *
-    FROM agg_binance_spot_kline
+    FROM agg_binance_futures_kline
     WHERE symbol = ?
     AND (volatility, close_time) IN (
         SELECT volatility, MAX(close_time)
-        FROM agg_binance_spot_kline
+        FROM agg_binance_futures_kline
         WHERE symbol = ?
         GROUP BY volatility
     )`, s.symbol, s.symbol,
@@ -136,7 +136,7 @@ func (s *Subscriber) alignWithKline() {
 		// 2. 获取BinanceSpotKline数据库中大于获取的Close时间戳的全部记录
 		var klines []model.BinanceFutureKline
 		err = s.storage.GetDB().Raw(
-			"SELECT * FROM binance_spot_kline WHERE symbol = ? AND start_time > ? ORDER BY start_time ASC",
+			"SELECT * FROM binance_futures_kline WHERE symbol = ? AND start_time > ? ORDER BY start_time ASC",
 			symbol,
 			lastCloseTime,
 		).Scan(&klines).Error

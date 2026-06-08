@@ -22,7 +22,7 @@ func (s *GormStorage) GetDB() *gorm.DB {
 // Uses raw INSERT to avoid GORM Create incompatibilities with ClickHouse native protocol.
 func (s *GormStorage) Commit(point *FutureKlinePoint) error {
 	return s.db.Exec(
-		`INSERT INTO binance_spot_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
+		`INSERT INTO binance_futures_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		point.Symbol, point.Period, point.StartTime, point.DateTime,
 		point.Open, point.High, point.Low, point.Close,
@@ -34,7 +34,7 @@ func (s *GormStorage) Commit(point *FutureKlinePoint) error {
 // CommitAggKline inserts an aggregated kline into the database.
 func (s *GormStorage) CommitAggKline(kline *AggBinanceFutureKline) error {
 	return s.db.Exec(
-		`INSERT INTO agg_binance_spot_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
+		`INSERT INTO agg_binance_futures_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, active_buy_volume, active_buy_quote_volume)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		kline.Symbol, kline.Period, kline.Volatility, kline.StartTime, kline.DateTime,
 		kline.Open, kline.High, kline.Low, kline.Close,
@@ -49,7 +49,7 @@ func (s *GormStorage) CommitAggKline(kline *AggBinanceFutureKline) error {
 func (s *GormStorage) GetLastTimeStamp(symbol string, period string) (int64, error) {
 	var startTime int64
 	err := s.db.Raw(
-		"SELECT start_time FROM binance_spot_kline WHERE symbol = ? AND period = ? ORDER BY start_time DESC LIMIT 1",
+		"SELECT start_time FROM binance_futures_kline WHERE symbol = ? AND period = ? ORDER BY start_time DESC LIMIT 1",
 		symbol, period,
 	).Scan(&startTime).Error
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *GormStorage) GetLastVolatilityPoint(symbol string, period string, volat
 	var point AggBinanceFutureKline
 	// 执行查询
 	result := s.db.Raw(
-		"SELECT * FROM agg_binance_spot_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
+		"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
 		symbol, period, volatility,
 	).Scan(&point)
 
