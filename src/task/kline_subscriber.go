@@ -32,6 +32,9 @@ type Subscriber struct {
 	// pointChan is an optional channel for publishing processed points
 	// to external consumers (e.g., PubSubService for MQTT aggregation).
 	pointChan chan<- *model.AggregatedFutureKline
+
+	alignEventC       chan bool
+	loadHistoryEventC chan bool
 }
 
 // NewSubscriber creates a new Subscriber instance
@@ -52,6 +55,11 @@ func NewSubscriber(storage model.Storage, symbol string, period string) *Subscri
 // SetPointChan sets the channel for publishing processed points to external consumers.
 func (s *Subscriber) SetPointChan(ch chan<- *model.AggregatedFutureKline) {
 	s.pointChan = ch
+}
+
+func (s *Subscriber) SetEventChan(alignEvent, loadHistoryEvent chan bool) {
+	s.alignEventC = alignEvent
+	s.loadHistoryEventC = loadHistoryEvent
 }
 
 // GetTimeStamp returns the latest websocket timestamp (thread-safe).
@@ -257,6 +265,10 @@ func (s *Subscriber) Start(timeStamp int64) {
 	// 对齐kline记录与volality数据库记录
 	s.setTimeStamp(timeStamp)
 	s.alignWithKline()
+	// 通知已经完成对齐任务
+	s.alignEventC <- true
+	// 等待历史数据加载完成
+	<-s.loadHistoryEventC
 	// 重试
 	for {
 		s.start()

@@ -25,8 +25,9 @@ func main() {
 
 	fmt.Printf("loaded %d subscription(s):\n", len(subscriptions))
 
+	// TODO: PubSubService 需要获得Subscriber的通知事件
 	// Create PubSubService for MQTT aggregation and publishing
-	pubSubService := task.NewPubSubService()
+	pubSubService := task.NewPubSubService(len(subscriptions))
 	pubSubService.SetStorage(storage)
 	go pubSubService.Start()
 
@@ -54,6 +55,7 @@ func main() {
 		// Wire up PubSubService to receive processed points from this subscriber
 		// 源数据传递到推送服务
 		subscriber.SetPointChan(pubSubService.PointChan)
+		subscriber.SetEventChan(pubSubService.AlignEventC, pubSubService.LoadHistoryEventC)
 
 		go subscriber.Start(lastTime)
 	}

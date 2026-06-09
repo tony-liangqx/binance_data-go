@@ -53,15 +53,20 @@ type PubSubService struct {
 	// latestPoints caches the latest 1m point per symbol (key = symbol)
 	latestPoints map[string]*model.AggregatedFutureKline
 	latestMu     sync.RWMutex
+
+	// 通知事件通道
+	AlignEventC       chan bool
+	LoadHistoryEventC chan bool
+	eventCount        int
 }
 
 // NewPubSubService creates a new PubSubService with default MQTT broker settings.
-func NewPubSubService() *PubSubService {
-	return NewPubSubServiceWithBroker(defaultMQTTBroker)
+func NewPubSubService(eventCount int) *PubSubService {
+	return NewPubSubServiceWithBroker(defaultMQTTBroker, eventCount)
 }
 
 // NewPubSubServiceWithBroker creates a new PubSubService with a custom MQTT broker address.
-func NewPubSubServiceWithBroker(broker string) *PubSubService {
+func NewPubSubServiceWithBroker(broker string, eventCount int) *PubSubService {
 	clientID := fmt.Sprintf("binance_pubsub_%d", time.Now().UnixNano())
 
 	opts := mqtt.NewClientOptions()
@@ -74,13 +79,16 @@ func NewPubSubServiceWithBroker(broker string) *PubSubService {
 	opts.SetOrderMatters(false)
 
 	return &PubSubService{
-		broker:       broker,
-		clientID:     clientID,
-		mqttOpts:     opts,
-		PointChan:    make(chan *model.AggregatedFutureKline, 1024),
-		aggregators:  make(map[string]ISymbolAggregator),
-		subRefCounts: make(map[string]int),
-		latestPoints: make(map[string]*model.AggregatedFutureKline),
+		broker:            broker,
+		clientID:          clientID,
+		mqttOpts:          opts,
+		PointChan:         make(chan *model.AggregatedFutureKline, 1024),
+		aggregators:       make(map[string]ISymbolAggregator),
+		subRefCounts:      make(map[string]int),
+		latestPoints:      make(map[string]*model.AggregatedFutureKline),
+		AlignEventC:       make(chan bool),
+		LoadHistoryEventC: make(chan bool),
+		eventCount:        eventCount,
 	}
 }
 
@@ -102,39 +110,44 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedF
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if agg, ok := s.aggregators[key]; ok {
+	var point model.AggregatedFutureKline
+
+	if aggregator, ok := s.aggregators[key]; ok {
 		s.subRefCounts[key]++
 		fmt.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
-			symbol, period, s.subRefCounts[key], len(agg.Indicators()))
-		// TODO：聚合器初始化，访问数据库构造历史数据
-		return *(agg.FirstPoint())
+			symbol, period, s.subRefCounts[key], len(aggregator.Indicators()))
+		switch kind {
+		case "volatility":
+			point = s.GetLatestPoint(symbol, kind, period)
+			point.Period = ""
+		default:
+			point = s.GetLatestPoint(symbol, kind, "1m")
+			point.Period = period
+			aggregator.SetFirstPoint(&point)
+		}
+		return point
 	}
 
-	var agg ISymbolAggregator
-	var point model.AggregatedFutureKline
+	var aggregator ISymbolAggregator
 	switch kind {
 	case "volatility":
-		agg = newVolatilityAggregator(symbol, period)
-		// 返回不同类型的数据
+		aggregator = newVolatilityAggregator(symbol, period)
 		point = s.GetLatestPoint(symbol, kind, period)
-		t := agg.Add(&point)
-		if t != nil {
-			point = *t
-		}
+		point.Period = ""
 	default:
-		agg = newSymbolAggregator(symbol, period)
+		aggregator = newSymbolAggregator(symbol, period)
 		point = s.GetLatestPoint(symbol, kind, "1m")
 		point.Period = period
-		agg.SetFirstPoint(&point)
+		aggregator.SetFirstPoint(&point)
 	}
 
 	// TODO：聚合器初始化，访问数据库构造历史数据
-	agg.AddDefaultIndicators()
-	s.aggregators[key] = agg
+	aggregator.AddDefaultIndicators()
+	s.aggregators[key] = aggregator
 	s.subRefCounts[key] = 1
 
 	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
-		symbol, period, agg.PointsPerAgg(), len(agg.Indicators()))
+		symbol, period, aggregator.PointsPerAgg(), len(aggregator.Indicators()))
 	return point
 }
 
@@ -168,6 +181,7 @@ func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
 		symbol, period)
 }
 
+// TODO: 调用时机要改变
 // 1. 从BinanceFutureKline和AggBinanceFutureKline数据库中查询最新记录
 // 2. 将查询结果转换为AggregatedKline格式，通过updateLatestPoint方法直接更新到内容
 // 3. BinanceSpotKline数据记录通过GROUP BY (symbol, period)、获得symbol和period的分组，最新的一条记录
@@ -199,17 +213,19 @@ func (s *PubSubService) loadHistoricalData() {
 	} else {
 		for _, k := range klines {
 			point := &model.AggregatedFutureKline{
-				Symbol:           k.Symbol,
-				Period:           k.Period,
-				StartTime:        k.StartTime,
-				Open:             k.Open,
-				High:             k.High,
-				Low:              k.Low,
-				Close:            k.Close,
-				Volume:           k.Volume,
-				QuoteAssetVolume: k.QuoteAssetVolume,
-				Trades:           k.Trades,
-				CloseTime:        k.CloseTime,
+				Symbol:                   k.Symbol,
+				Period:                   k.Period,
+				StartTime:                k.StartTime,
+				Open:                     k.Open,
+				High:                     k.High,
+				Low:                      k.Low,
+				Close:                    k.Close,
+				Volume:                   k.Volume,
+				QuoteAssetVolume:         k.QuoteAssetVolume,
+				Trades:                   k.Trades,
+				CloseTime:                k.CloseTime,
+				TakerBuyBaseAssetVolume:  k.TakerBuyBaseAssetVolume,
+				TakerBuyQuoteAssetVolume: k.TakerBuyQuoteAssetVolume,
 			}
 			s.updateLatestPoint(point)
 			fmt.Printf("[pubsub] loaded latest kline: %s/%s start=%d\n", k.Symbol, k.Period, k.StartTime)
@@ -231,19 +247,22 @@ func (s *PubSubService) loadHistoricalData() {
 	} else {
 		for _, k := range aggKlines {
 			point := &model.AggregatedFutureKline{
-				Symbol:           k.Symbol,
-				Period:           k.Period,
-				Volatility:       k.Volatility,
-				StartTime:        k.StartTime,
-				Open:             k.Open,
-				High:             k.High,
-				Low:              k.Low,
-				Close:            k.Close,
-				Volume:           k.Volume,
-				QuoteAssetVolume: k.QuoteAssetVolume,
-				Trades:           k.Trades,
-				CloseTime:        k.CloseTime,
-				History:          make([]float64, 0),
+				Symbol:                   k.Symbol,
+				Period:                   k.Period,
+				Volatility:               k.Volatility,
+				StartTime:                k.StartTime,
+				Open:                     k.Open,
+				High:                     k.High,
+				Low:                      k.Low,
+				Close:                    k.Close,
+				Volume:                   k.Volume,
+				QuoteAssetVolume:         k.QuoteAssetVolume,
+				Trades:                   k.Trades,
+				CloseTime:                k.CloseTime,
+				TakerBuyBaseAssetVolume:  k.TakerBuyBaseAssetVolume,
+				TakerBuyQuoteAssetVolume: k.TakerBuyQuoteAssetVolume,
+				Count:                    k.Count,
+				History:                  make([]float64, 0),
 			}
 			// 计算指标
 			window, err := QueryVolatilityWindow(db, k.Symbol, k.Volatility)
@@ -275,7 +294,17 @@ func (s *PubSubService) loadHistoricalData() {
 // Start begins the PubSubService. It loads historical data into cache from the
 // database, then connects to MQTT and starts consuming points from PointChan.
 func (s *PubSubService) Start() {
+	var count int
+	for range s.AlignEventC {
+		count++
+		if count == s.eventCount {
+			break // 退出 for 循环
+		}
+	}
+	fmt.Printf("[pubsub] aligned %d events\n", count)
 	s.loadHistoricalData()
+	close(s.AlignEventC)
+	close(s.LoadHistoryEventC)
 	s.start()
 }
 

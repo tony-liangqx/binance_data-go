@@ -230,6 +230,7 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*Aggregat
 
 		Count:      point.Count,
 		Indicators: make(map[string]any),
+		History:    make([]float64, 0),
 	}
 
 	// 聚合后等待下一个数据点
