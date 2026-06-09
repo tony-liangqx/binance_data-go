@@ -140,5 +140,9 @@ type AggregatedFutureKline struct {
 	TakerBuyBaseAssetVolume  float64        `json:"taker_buy_base_asset_volume"`
 	TakerBuyQuoteAssetVolume float64        `json:"taker_buy_quote_asset_volume"`
 	Count                    int            `json:"count"`
+	Vd                       float64        `json:"vd"`
+	Ma10                     float64        `json:"ma10"`
+	Ratio                    float64        `json:"ratio"`
+	History                  []float64      `json:"-"`
 	Indicators               map[string]any `json:"indicators,omitempty"`
 }

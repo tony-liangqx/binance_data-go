@@ -253,7 +253,7 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 	queryArgs = append(queryArgs, args...)  // for WHERE clause
 	queryArgs = append(queryArgs, limit)    // for LIMIT ?
 
-	if err := db.Debug().Raw(sql, queryArgs...).Scan(&klines).Error; err != nil {
+	if err := db.Raw(sql, queryArgs...).Scan(&klines).Error; err != nil {
 		return nil, err
 	}
 	return klines, nil

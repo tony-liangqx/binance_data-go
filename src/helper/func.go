@@ -10,7 +10,6 @@ import (
 
 	"gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // StorageConfig database connection configuration
@@ -58,9 +57,6 @@ func GetStorage() model.Storage {
 
 	db, err := gorm.Open(dialector, &gorm.Config{
 		SkipDefaultTransaction: true,
-	})
-	db = db.Session(&gorm.Session{
-		Logger: db.Logger.LogMode(logger.Info),
 	})
 	if err != nil {
 		panic(fmt.Errorf("failed to connect database: %w", err))

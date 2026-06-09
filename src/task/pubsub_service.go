@@ -243,9 +243,31 @@ func (s *PubSubService) loadHistoricalData() {
 				QuoteAssetVolume: k.QuoteAssetVolume,
 				Trades:           k.Trades,
 				CloseTime:        k.CloseTime,
+				History:          make([]float64, 0),
 			}
+			// 计算指标
+			window, err := QueryVolatilityWindow(db, k.Symbol, k.Volatility)
+
+			if err != nil {
+				fmt.Printf("[pubsub] failed to query volatility: %v\n", err)
+			}
+			wlen := len(window)
+			if wlen == 0 {
+				continue
+			}
+			sum := 0.0
+			for _, item := range window {
+				vd := item.Volume / float64(item.Count)
+				point.History = append(point.History, item.Volume)
+				sum += vd
+			}
+			point.Vd = window[wlen-1].Volume / float64(window[wlen-1].Count)
+			ma10 := sum / float64(wlen)
+			point.Ma10 = ma10
+			point.Ratio = point.Vd / ma10
+
 			s.updateLatestPoint(point)
-			fmt.Printf("[pubsub] loaded latest agg kline: %s/%s volatility=%s start=%d\n", k.Symbol, k.Period, k.Volatility, k.StartTime)
+			fmt.Printf("[pubsub] loaded latest agg kline: %s/%s volatility=%s start=%d, vd=%f, ma10=%f, ratio=%f\n", k.Symbol, k.Period, k.Volatility, k.StartTime, point.Vd, point.Ma10, point.Ratio)
 		}
 	}
 }
@@ -311,6 +333,21 @@ func (s *PubSubService) updateLatestPoint(point *model.AggregatedFutureKline) {
 
 	s.latestMu.Lock()
 	defer s.latestMu.Unlock()
+	// 指标需要保留历史数据
+	old, ok := s.latestPoints[key]
+	if ok && kind == "volatility" {
+		point.Vd = point.Volume / float64(point.Count)
+		length := len(old.History)
+		if length < 10 {
+			point.Ma10 = (point.Volume + old.Ma10*float64(length)) / float64(length)
+			point.History = append(old.History, point.Volume)
+			point.Ratio = point.Vd / point.Ma10
+		} else {
+			point.Ma10 = (point.Volume-old.History[0])/10.0 + old.Ma10
+			point.History = append(old.History[1:], point.Volume)
+			point.Ratio = point.Vd / point.Ma10
+		}
+	}
 	s.latestPoints[key] = point
 	fmt.Printf("[pubsub] latest points: %s\n", key)
 }

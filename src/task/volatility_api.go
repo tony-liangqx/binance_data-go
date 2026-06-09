@@ -21,7 +21,6 @@ type volatilityHandler struct {
 // volatilityRecord represents a single volatility kline in the JSON response.
 type volatilityRecord struct {
 	Symbol                   string  `json:"symbol"`
-	Period                   string  `json:"-"`
 	Volatility               string  `json:"volatility"`
 	StartTime                int64   `json:"start_time"`
 	Open                     float64 `json:"open"`
@@ -35,10 +34,36 @@ type volatilityRecord struct {
 	TakerBuyQuoteAssetVolume float64 `json:"taker_buy_quote_asset_volume"`
 	CloseTime                int64   `json:"close_time"`
 	Count                    int     `json:"count"`
+	Vd                       float64 `gorm:"-" json:"vd"`
+	Ma10                     float64 `gorm:"-" json:"ma10"`
+	Ratio                    float64 `gorm:"-" json:"ratio"`
+}
+
+type AggKlineWithIndicator struct {
+	// 排序键（复合主键）：symbol + period + start_time
+	Symbol     string `gorm:"column:symbol"`
+	Volatility string `gorm:"column:volatility"`
+	StartTime  int64  `gorm:"column:start_time"`
+	// K线核心数据
+	Open                     float64 `gorm:"column:open"`
+	High                     float64 `gorm:"column:high"`
+	Low                      float64 `gorm:"column:low"`
+	Close                    float64 `gorm:"column:close"`
+	Volume                   float64 `gorm:"column:volume"`
+	QuoteAssetVolume         float64 `gorm:"column:quote_asset_volume"`
+	Trades                   uint32  `gorm:"column:trades"`
+	TakerBuyBaseAssetVolume  float64 `gorm:"column:taker_buy_base_asset_volume"`
+	TakerBuyQuoteAssetVolume float64 `gorm:"column:taker_buy_quote_asset_volume"`
+	// 时间与状态
+	CloseTime int64   `gorm:"column:close_time"`
+	Count     int     `gorm:"column:count"`
+	Vd        float64 `gorm:"column:vd"`
+	Ma10      float64 `gorm:"column:ma10"`
+	Ratio     float64 `gorm:"column:ratio"`
 }
 
 // newVolatilityRecord builds a volatilityRecord from a model row.
-func newVolatilityRecord(k *model.AggBinanceFutureKline) volatilityRecord {
+func newVolatilityRecord(k *AggKlineWithIndicator) volatilityRecord {
 	return volatilityRecord{
 		Symbol: k.Symbol,
 		// Period:               k.Period,
@@ -55,6 +80,9 @@ func newVolatilityRecord(k *model.AggBinanceFutureKline) volatilityRecord {
 		TakerBuyQuoteAssetVolume: k.TakerBuyQuoteAssetVolume,
 		CloseTime:                k.CloseTime,
 		Count:                    k.Count,
+		Vd:                       k.Vd,
+		Ma10:                     k.Ma10,
+		Ratio:                    k.Ratio,
 	}
 }
 
@@ -164,26 +192,97 @@ func (h *volatilityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // queryVolatility executes a direct query against agg_binance_futures_kline
 // for the given symbol and volatility interval.
-func (h *volatilityHandler) queryVolatility(db *gorm.DB, symbol, interval string, startTime, endTime int64, hasStartTime, hasEndTime bool, limit int) ([]model.AggBinanceFutureKline, error) {
-	var klines []model.AggBinanceFutureKline
+func (h *volatilityHandler) queryVolatility(db *gorm.DB, symbol, interval string, startTime, endTime int64, hasStartTime, hasEndTime bool, limit int) ([]AggKlineWithIndicator, error) {
+	var klines []AggKlineWithIndicator
 
-	// The "interval" parameter maps to the "volatility" column in the DB.
-	// The "period" column stores the original kline period (e.g., "1m").
-	query := db.Table("agg_binance_futures_kline").
-		Where("symbol = ?", symbol).
-		Where("volatility = ?", interval)
+	// 1. 获取当前周期的秒数，用于历史数据向前对齐（例如 1m = 60秒）
+	// 注意：请确保能根据你的 period/interval 变量映射出每根 K 线的实际秒数。这里假设一个默认基础步长，请根据业务调整
+	periodSeconds := int64(60)
+
+	// 2. 构建内部基础查询的过滤条件与参数绑定
+	baseWhere := "WHERE symbol = ? AND volatility = ?"
+	var args []interface{}
+	args = append(args, symbol, interval)
 
 	if hasStartTime {
-		query = query.Where("start_time >= ?", startTime)
+		// 关键点：为了保证前 9 行的 MA10 指标计算精准，底层查询必须包含前 9 根 K 线的历史数据作为预热窗口
+		paddedStartTime := startTime - (9 * periodSeconds)
+		baseWhere += " AND start_time >= ?"
+		args = append(args, paddedStartTime)
 	}
 	if hasEndTime {
-		query = query.Where("start_time <= ?", endTime)
+		baseWhere += " AND start_time <= ?"
+		args = append(args, endTime)
 	}
 
-	query = query.Order("start_time DESC").Limit(limit)
+	// 3. 动态拼接完整 SQL 字符串
+	// 并在最外层 SELECT 中，使用 WHERE start_time >= ? 剔除掉用于预热指标的富余历史数据
+	sql := fmt.Sprintf(`
+WITH base_data AS
+    (
+        SELECT
+            symbol,
+            period,
+            volatility,
+            start_time,
+            dt,
+            open,
+            high,
+            low,
+            close,
+            volume,
+            count,
+            round(volume / count, 6) AS vd,
+            round(avg(volume / count) OVER (PARTITION BY symbol, period, volatility ORDER BY start_time ASC ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), 6) AS ma10
+        FROM agg_binance_futures_kline
+        %s
+        ORDER BY start_time DESC
+        LIMIT ?
+    )
+SELECT
+    *,
+    round(ifNull(divideOrNull(vd, ma10), 0), 6) AS ratio
+FROM base_data
+WHERE 1=1
+`, baseWhere)
 
-	if err := query.Scan(&klines).Error; err != nil {
+	// 为 base_data 的 LIMIT 填充参数（传入 limit + 15 确保包含用于预热的数据行数）
+	args = append(args, limit+15)
+
+	// 外层过滤：如果传了 startTime，需要在此处将用于计算均线而多拉取的 9 条预热数据精准过滤掉
+	if hasStartTime {
+		sql += " AND start_time >= ?"
+		args = append(args, startTime)
+	}
+
+	// 补全最外层的排序和 ClickHouse 专属安全配置
+	sql += `
+ORDER BY
+    symbol ASC,
+    period ASC,
+    start_time ASC
+LIMIT ?
+SETTINGS
+    compile_expressions = 0,
+    compile_sort_description = 0;
+`
+	// 填充最终外层 SELECT 的 LIMIT 参数
+	args = append(args, limit)
+
+	// 4. 执行 GORM 原生 SQL 查询
+	if err := db.Raw(sql, args...).Scan(&klines).Error; err != nil {
 		return nil, err
 	}
 	return klines, nil
+}
+
+func QueryVolatilityWindow(db *gorm.DB, symbol, interval string) ([]model.AggBinanceFutureKline, error) {
+	query := db.Table("agg_binance_futures_kline").
+		Where("symbol = ?", symbol).
+		Where("volatility = ?", interval).Order("start_time DESC").Limit(10)
+	var points []model.AggBinanceFutureKline
+	if err := query.Find(&points).Error; err != nil {
+		return nil, err
+	}
+	return points, nil
 }
