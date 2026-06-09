@@ -1,6 +1,9 @@
 package model
 
 import (
+	"database/sql"
+	"errors"
+
 	"gorm.io/gorm"
 )
 
@@ -21,25 +24,77 @@ func (s *GormStorage) GetDB() *gorm.DB {
 // Commit inserts a kline point into the database.
 // Uses raw INSERT to avoid GORM Create incompatibilities with ClickHouse native protocol.
 func (s *GormStorage) Commit(point *FutureKlinePoint) error {
-	return s.db.Exec(
-		`INSERT INTO binance_futures_kline (symbol, period, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, taker_buy_base_asset_volume, taker_buy_quote_asset_volume)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		point.Symbol, point.Period, point.StartTime, point.DateTime,
-		point.Open, point.High, point.Low, point.Close,
-		point.Volume, point.QuoteAssetVolume, point.Trades, point.CloseTime,
-		point.TakerBuyBaseAssetVolume, point.TakerBuyQuoteAssetVolume,
+	// 空指针安全判断
+	if point == nil {
+		return errors.New("point is nil")
+	}
+
+	// 使用 命名参数 @变量，顺序无关，不会错位
+	return s.db.Exec(`
+			INSERT INTO binance_futures_kline (
+				symbol, period, start_time, dt,
+				open, high, low, close,
+				volume, quote_asset_volume, trades, close_time,
+				taker_buy_base_asset_volume, taker_buy_quote_asset_volume
+			) VALUES (
+				@symbol, @period, @start_time, @dt,
+				@open, @high, @low, @close,
+				@volume, @quote_asset_volume, @trades, @close_time,
+				@taker_buy_base, @taker_buy_quote
+			)`,
+		sql.Named("symbol", point.Symbol),
+		sql.Named("period", point.Period),
+		sql.Named("start_time", point.StartTime),
+		sql.Named("dt", point.DateTime),
+		sql.Named("open", point.Open),
+		sql.Named("high", point.High),
+		sql.Named("low", point.Low),
+		sql.Named("close", point.Close),
+		sql.Named("volume", point.Volume),
+		sql.Named("quote_asset_volume", point.QuoteAssetVolume),
+		sql.Named("trades", point.Trades),
+		sql.Named("close_time", point.CloseTime),
+		sql.Named("taker_buy_base", point.TakerBuyBaseAssetVolume),
+		sql.Named("taker_buy_quote", point.TakerBuyQuoteAssetVolume),
 	).Error
 }
 
 // CommitAggKline inserts an aggregated kline into the database.
 func (s *GormStorage) CommitAggKline(kline *AggBinanceFutureKline) error {
-	return s.db.Exec(
-		`INSERT INTO agg_binance_futures_kline (symbol, period, volatility, start_time, dt, open, high, low, close, volume, quote_asset_volume, trades, close_time, taker_buy_base_asset_volume, taker_buy_quote_asset_volume, count)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		kline.Symbol, kline.Period, kline.Volatility, kline.StartTime, kline.DateTime,
-		kline.Open, kline.High, kline.Low, kline.Close,
-		kline.Volume, kline.QuoteAssetVolume, kline.Trades, kline.CloseTime,
-		kline.TakerBuyBaseAssetVolume, kline.TakerBuyQuoteAssetVolume, kline.Count,
+	// 1. 空指针安全校验
+	if kline == nil {
+		return errors.New("agg kline is nil")
+	}
+
+	// 2. 使用命名参数 @xxx，彻底告别位置错误
+	return s.db.Exec(`
+		INSERT INTO agg_binance_futures_kline (
+			symbol, period, volatility, start_time, dt,
+			open, high, low, close,
+			volume, quote_asset_volume, trades, close_time,
+			taker_buy_base_asset_volume, taker_buy_quote_asset_volume, count
+		) VALUES (
+			@symbol, @period, @volatility, @start_time, @dt,
+			@open, @high, @low, @close,
+			@volume, @quote_asset_volume, @trades, @close_time,
+			@taker_buy_base, @taker_buy_quote, @count
+		)`,
+		sql.Named("symbol", kline.Symbol),
+		sql.Named("period", kline.Period),
+		sql.Named("volatility", kline.Volatility),
+		sql.Named("start_time", kline.StartTime),
+		sql.Named("dt", kline.DateTime),
+		sql.Named("open", kline.Open),
+		sql.Named("high", kline.High),
+		sql.Named("low", kline.Low),
+		sql.Named("close", kline.Close),
+		sql.Named("volume", kline.Volume),
+		sql.Named("quote_asset_volume", kline.QuoteAssetVolume),
+		sql.Named("trades", kline.Trades),
+		sql.Named("close_time", kline.CloseTime),
+		sql.Named("taker_buy_base", kline.TakerBuyBaseAssetVolume),
+		sql.Named("taker_buy_quote", kline.TakerBuyQuoteAssetVolume),
+		sql.Named("count", kline.Count),
 	).Error
 }
 

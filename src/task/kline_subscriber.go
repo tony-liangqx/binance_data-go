@@ -127,8 +127,13 @@ func (s *Subscriber) alignWithKline() {
 	).Scan(&records).Error
 	if err != nil {
 		fmt.Printf("[alignWithKline] %s %s failed to get last agg close_time: %v\n", s.symbol, s.period, err)
+		// TODO: 未来解决
 		panic(err)
 	}
+	// TODO::
+	// 1. 缺失的volatility从BinanceFutureKline表中最小的start_time开始
+	// 2. 有历史volatility信息的情况从BinanceSpotKline表中StartTime大于start_time时间戳的全部记录
+	// 3. 使用游标的方式获取
 
 	for _, record := range records {
 		symbol := record.Symbol
@@ -337,7 +342,7 @@ func (s *Subscriber) aggregatePoint(point *model.FutureKlinePoint) ([]*model.Agg
 func (s *Subscriber) savePoint(point *model.FutureKlinePoint) error {
 	{
 		// Commit会合并volatility数据
-		points, err := s.aggregatePoint(point)
+		needPubPoints, err := s.aggregatePoint(point)
 		if err != nil {
 			fmt.Printf("[subscriber] aggregator error: %v\n", err)
 			// TODO:: 未来解决
@@ -353,7 +358,7 @@ func (s *Subscriber) savePoint(point *model.FutureKlinePoint) error {
 		fmt.Printf("[subscriber] saved kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
-		lastPoint := &model.AggregatedFutureKline{
+		kline := &model.AggregatedFutureKline{
 			Symbol:                   point.Symbol,
 			Period:                   point.Period,
 			Kind:                     "kline",
@@ -370,8 +375,8 @@ func (s *Subscriber) savePoint(point *model.FutureKlinePoint) error {
 			TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
 		}
 
-		points = append(points, lastPoint)
-		for _, point := range points {
+		needPubPoints = append(needPubPoints, kline)
+		for _, point := range needPubPoints {
 			s.publishPoint(point)
 		}
 		return nil

@@ -270,7 +270,7 @@ SETTINGS
 	args = append(args, limit)
 
 	// 4. 执行 GORM 原生 SQL 查询
-	if err := db.Raw(sql, args...).Scan(&klines).Error; err != nil {
+	if err := db.Debug().Raw(sql, args...).Scan(&klines).Error; err != nil {
 		return nil, err
 	}
 	return klines, nil
