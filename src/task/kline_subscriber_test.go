@@ -69,7 +69,7 @@ func (m *mockStorage) GetLastTimeStamp(symbol string, period string) (int64, err
 	return entries[len(entries)-1].StartTime, nil
 }
 
-func (m *mockStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*model.BinanceFutureKline, error) {
+func (m *mockStorage) GetLastVolatilityPoint(symbol string, volatility string) (*model.BinanceFutureKline, error) {
 	// m.mu.Lock()
 	// defer m.mu.Unlock()
 	// m.lastVolCalls++

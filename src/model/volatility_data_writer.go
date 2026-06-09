@@ -47,28 +47,24 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 	vName := strconv.Itoa(int(volatility * 10))
 	// 从AggKline记录查询到最新kline数据
 	// 搜索最新一条AggBinanceFutureKline数据的close_time，获得第一条start_time大于close_time的BinanceFutureKline类型数据
-	lastPoint, err := storage.GetLastVolatilityPoint(symbol, "1m", vName)
+	lastPoint, err := storage.GetLastVolatilityPoint(symbol, vName)
 	if err != nil {
 		fmt.Printf("[volatility_data_writer(%s %s): %s\n", symbol, vName, err.Error())
+	}
+
+	vd := &VolatilityDataWriter{
+		symbol:     symbol,
+		volatility: volatility,
+		kind:       "volatility",
+		storage:    storage,
 	}
 	if lastPoint != nil && lastPoint.StartTime != 0 {
 		// BinanceFutureKline类型
 		fmt.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
-		vd := &VolatilityDataWriter{
-			symbol:     symbol,
-			volatility: volatility,
-			kind:       "volatility",
-			storage:    storage,
-		}
 		vd.LoadData(lastPoint)
 		return vd
 	}
-	return &VolatilityDataWriter{
-		symbol:     symbol,
-		volatility: volatility,
-		storage:    storage,
-		firstPoint: nil,
-	}
+	return vd
 }
 
 // Symbol returns the trading symbol this aggregator tracks.
@@ -149,6 +145,10 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 		return nil, nil
 	}
 
+	if point.StartTime <= a.firstPoint.StartTime {
+		return nil, nil
+	}
+
 	a.count++
 
 	if point.High > a.high {
@@ -196,9 +196,6 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 		// a.initInnerPoint(point)
 
 		return needPub, nil
-	} else {
-		fmt.Printf("[volatility_data_writer] %s %s %d points, start=%d, changePct=%.4f%% < %.4f\n",
-			a.symbol, a.Volatility(), a.count, a.firstPoint.StartTime, changePct, a.volatility)
 	}
 
 	return nil, nil

@@ -115,12 +115,12 @@ func (s *GormStorage) GetLastTimeStamp(symbol string, period string) (int64, err
 
 // Returns 0 if no records exist.
 // Uses Raw SQL to avoid GORM query builder incompatibilities with ClickHouse native protocol.
-func (s *GormStorage) GetLastVolatilityPoint(symbol string, period string, volatility string) (*BinanceFutureKline, error) {
+func (s *GormStorage) GetLastVolatilityPoint(symbol string, volatility string) (*BinanceFutureKline, error) {
 	var agg_point AggBinanceFutureKline
 	// 执行查询
 	result := s.db.Raw(
-		"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
-		symbol, period, volatility,
+		"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = '1m' AND volatility = ? ORDER BY start_time DESC LIMIT 1",
+		symbol, volatility,
 	).Scan(&agg_point)
 
 	if result.Error != nil {
