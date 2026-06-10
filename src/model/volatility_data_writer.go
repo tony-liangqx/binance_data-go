@@ -45,26 +45,26 @@ type VolatilityDataWriter struct {
 // the given symbol / period.
 func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage) *VolatilityDataWriter {
 	vName := strconv.Itoa(int(volatility * 10))
-	lastPoint, err := storage.GetLastVolatilityPoint(symbol, "1m", strconv.Itoa(int(volatility*10)))
+	// 从AggKline记录查询到最新kline数据
+	// 搜索最新一条AggBinanceFutureKline数据的close_time，获得第一条start_time大于close_time的BinanceFutureKline类型数据
+	lastPoint, err := storage.GetLastVolatilityPoint(symbol, vName)
 	if err != nil {
 		fmt.Printf("[volatility_data_writer(%s %s): %s\n", symbol, vName, err.Error())
 	}
-	if lastPoint != nil {
-		fmt.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
-		return &VolatilityDataWriter{
-			symbol:     symbol,
-			volatility: volatility,
-			kind:       "volatility",
-			storage:    storage,
-			firstPoint: lastPoint,
-		}
-	}
-	return &VolatilityDataWriter{
+
+	vd := &VolatilityDataWriter{
 		symbol:     symbol,
 		volatility: volatility,
+		kind:       "volatility",
 		storage:    storage,
-		firstPoint: nil,
 	}
+	if lastPoint != nil && lastPoint.StartTime != 0 {
+		// BinanceFutureKline类型
+		fmt.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
+		vd.LoadData(lastPoint)
+		return vd
+	}
+	return vd
 }
 
 // Symbol returns the trading symbol this aggregator tracks.
@@ -73,50 +73,80 @@ func (a *VolatilityDataWriter) Symbol() string { return a.symbol }
 // Period returns the aggregation period.
 func (a *VolatilityDataWriter) Volatility() string { return strconv.Itoa(int(a.volatility * 10)) }
 
+func (a *VolatilityDataWriter) LoadData(point *BinanceFutureKline) {
+	a.firstPoint = &AggBinanceFutureKline{
+		Symbol:                   point.Symbol,
+		Period:                   point.Period,
+		Volatility:               a.Volatility(),
+		StartTime:                point.StartTime,
+		DateTime:                 DateTimeMillis(point.DateTime),
+		Open:                     point.Open,
+		High:                     point.High,
+		Low:                      point.Low,
+		Close:                    point.Close,
+		Volume:                   point.Volume,
+		CloseTime:                point.CloseTime,
+		QuoteAssetVolume:         point.QuoteAssetVolume,
+		Trades:                   point.Trades,
+		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
+	}
+
+	a.high = point.High
+	a.low = point.Low
+
+	a.volume = point.Volume
+	a.quoteAssetVolume = point.QuoteAssetVolume
+	a.trades = point.Trades
+	a.active_buy_volume = point.TakerBuyBaseAssetVolume
+	a.active_buy_quote_volume = point.TakerBuyQuoteAssetVolume
+	a.count = 1
+}
+
+func (a *VolatilityDataWriter) initInnerPoint(point *FutureKlinePoint) {
+	// First point of a new window: initialize all state
+	a.firstPoint = &AggBinanceFutureKline{
+		Symbol:                   point.Symbol,
+		Period:                   point.Period,
+		Volatility:               a.Volatility(),
+		StartTime:                point.StartTime,
+		Open:                     point.Open,
+		High:                     point.High,
+		Low:                      point.Low,
+		Close:                    point.Close,
+		Volume:                   point.Volume,
+		CloseTime:                point.CloseTime,
+		QuoteAssetVolume:         point.QuoteAssetVolume,
+		Trades:                   point.Trades,
+		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
+		Count:                    1,
+	}
+
+	a.high = point.High
+	a.low = point.Low
+
+	a.volume = point.Volume
+	a.quoteAssetVolume = point.QuoteAssetVolume
+	a.trades = point.Trades
+	a.active_buy_volume = point.TakerBuyBaseAssetVolume
+	a.active_buy_quote_volume = point.TakerBuyQuoteAssetVolume
+	a.count = 1
+}
+
 // Add inserts a 1m point into the aggregator. When the price change percentage
 // exceeds 0.01 %, it produces an aggregated kline, runs all indicators, and
 // returns the result. Returns nil if the threshold has not been reached.
 func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKline, error) {
+	// 聚合后等待下一个数据点
+	// 之前的版本是nil的情况会写入，当前是完成初始化
 	if a.firstPoint == nil {
-		// First point of a new window: initialize all state
-		a.firstPoint = &AggBinanceFutureKline{
-			Symbol:               point.Symbol,
-			Period:               point.Period,
-			Volatility:           a.Volatility(),
-			StartTime:            point.StartTime,
-			DateTime:             DateTimeMillis(point.DateTime),
-			Open:                 point.Open,
-			High:                 point.High,
-			Low:                  point.Low,
-			Close:                point.Close,
-			Volume:               point.Volume,
-			CloseTime:            point.CloseTime,
-			QuoteAssetVolume:     point.QuoteAssetVolume,
-			Trades:               point.Trades,
-			ActiveBuyVolume:      point.ActiveBuyVolume,
-			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
-		}
+		a.initInnerPoint(point)
+		return nil, nil
+	}
 
-		a.high = point.High
-		a.low = point.Low
-
-		a.volume = point.Volume
-		a.quoteAssetVolume = point.QuoteAssetVolume
-		a.trades = point.Trades
-		a.active_buy_volume = point.ActiveBuyVolume
-		a.active_buy_quote_volume = point.ActiveBuyQuoteVolume
-		a.count = 1
-
-		agg, err := a.finalize(a.firstPoint)
-		if err != nil {
-			fmt.Printf("[volatility_data_writer] failed to save aggregated kline: %v\n", err)
-			return nil, err
-		}
-		fmt.Printf("[volatility_data_writer] first aggregated %s/%s: %d points, start=%d -> end=%d, changePct=%.4f%%\n",
-			a.symbol, a.Volatility(), a.count, agg.StartTime, agg.CloseTime,
-			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
-		return agg, nil
-
+	if point.StartTime <= a.firstPoint.StartTime {
+		return nil, nil
 	}
 
 	a.count++
@@ -130,67 +160,42 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 	a.volume += point.Volume
 	a.quoteAssetVolume += point.QuoteAssetVolume
 	a.trades += point.Trades
-	a.active_buy_volume += point.ActiveBuyVolume
-	a.active_buy_quote_volume += point.ActiveBuyQuoteVolume
+	a.active_buy_volume += point.TakerBuyBaseAssetVolume
+	a.active_buy_quote_volume += point.TakerBuyQuoteAssetVolume
 
-	changePct := (math.Abs(a.firstPoint.Close-point.Close) / point.Close) * 100
+	changePct := (math.Abs(point.Close-a.firstPoint.Open) / a.firstPoint.Open) * 100
 
 	if changePct > a.volatility {
-		newAgg := &AggBinanceFutureKline{
+		aggregatedPoint := &AggBinanceFutureKline{
 			Symbol:     a.symbol,
 			Period:     point.Period,
 			Volatility: a.Volatility(),
 			StartTime:  a.firstPoint.StartTime,
-			DateTime:   DateTimeMillis(point.DateTime),
 			Open:       a.firstPoint.Open,
 			High:       a.high,
 			Low:        a.low,
 			Close:      point.Close,
 			CloseTime:  point.CloseTime,
 			// 计算聚合值
-			Volume:               a.volume,
-			QuoteAssetVolume:     a.quoteAssetVolume,
-			Trades:               a.trades,
-			ActiveBuyVolume:      a.active_buy_volume,
-			ActiveBuyQuoteVolume: a.active_buy_quote_volume,
+			Volume:                   a.volume,
+			QuoteAssetVolume:         a.quoteAssetVolume,
+			Trades:                   a.trades,
+			TakerBuyBaseAssetVolume:  a.active_buy_volume,
+			TakerBuyQuoteAssetVolume: a.active_buy_quote_volume,
+			Count:                    a.count,
 		}
-		agg, err := a.finalize(newAgg)
+		needPub, err := a.finalize(aggregatedPoint)
 		if err != nil {
 			return nil, err
 		}
 
 		fmt.Printf("[volatility_data_writer] aggregated %s/%s: %d points, start=%d -> end=%d, changePct=%.4f%%\n",
-			a.symbol, a.Volatility(), a.count, agg.StartTime, agg.CloseTime,
-			(math.Abs(a.firstPoint.Close-point.Close)/point.Close)*100)
+			a.symbol, a.Volatility(), a.count, needPub.StartTime, needPub.CloseTime, changePct)
 
 		// Reset window state, using the current point as the start of the next window
-		a.firstPoint = &AggBinanceFutureKline{
-			Symbol:               point.Symbol,
-			Period:               point.Period,
-			Volatility:           a.Volatility(),
-			StartTime:            point.StartTime,
-			DateTime:             DateTimeMillis(point.DateTime),
-			Open:                 point.Open,
-			High:                 point.High,
-			Low:                  point.Low,
-			Close:                point.Close,
-			Volume:               point.Volume,
-			CloseTime:            point.CloseTime,
-			QuoteAssetVolume:     point.QuoteAssetVolume,
-			Trades:               point.Trades,
-			ActiveBuyVolume:      point.ActiveBuyVolume,
-			ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
-		}
+		// a.initInnerPoint(point)
 
-		a.high = point.High
-		a.low = point.Low
-
-		a.volume = point.Volume
-		a.quoteAssetVolume = point.QuoteAssetVolume
-		a.trades = point.Trades
-		a.count = 1
-
-		return agg, nil
+		return needPub, nil
 	}
 
 	return nil, nil
@@ -204,7 +209,7 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*Aggregat
 	}
 
 	// 返回的数据
-	agg := &AggregatedFutureKline{
+	needPub := &AggregatedFutureKline{
 		Symbol:     point.Symbol,
 		Period:     point.Period,
 		Kind:       a.kind,
@@ -216,18 +221,22 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*Aggregat
 		Close:      point.Close,
 
 		// 计算聚合值
-		Volume:               point.Volume,
-		CloseTime:            point.CloseTime,
-		QuoteAssetVolume:     point.QuoteAssetVolume,
-		Trades:               point.Trades,
-		ActiveBuyVolume:      point.ActiveBuyVolume,
-		ActiveBuyQuoteVolume: point.ActiveBuyQuoteVolume,
+		Volume:                   point.Volume,
+		CloseTime:                point.CloseTime,
+		QuoteAssetVolume:         point.QuoteAssetVolume,
+		Trades:                   point.Trades,
+		TakerBuyBaseAssetVolume:  point.TakerBuyBaseAssetVolume,
+		TakerBuyQuoteAssetVolume: point.TakerBuyQuoteAssetVolume,
 
-		Count:      a.count,
+		Count:      point.Count,
 		Indicators: make(map[string]any),
+		History:    make([]float64, 0),
 	}
 
-	return agg, nil
+	// 聚合后等待下一个数据点
+	a.firstPoint = nil
+
+	return needPub, nil
 }
 
 // saveAggregated writes the aggregated kline to the AggBinanceSpotKline table.

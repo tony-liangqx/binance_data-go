@@ -10,10 +10,39 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var ALL_SYMBOLS = []string{
+	"ETHUSDT",
+	"SOLUSDT",
+	"TRXUSDT",
+	"DOGEUSDT",
+	"XRPUSDT",
+	"LTCUSDT",
+	"SUIUSDT",
+	"ZKUSDT",
+	"AAVEUSDT",
+	"AVAXUSDT",
+	"ZECUSDT",
+	"1000PEPEUSDT",
+	"OPUSDT",
+	"ADAUSDT",
+	"LINKUSDT",
+	"UNIUSDT",
+	"TONUSDT",
+}
+
 func main() {
 	server := flag.String("server", "ws://localhost:8080", "WebSocket server URL")
+	ratio := flag.String("ratio", "10", "volatility level")
 	flag.Parse()
-	streams := "BTCUSDT@kline_5m/ETHUSDT@volatility_5"
+	if *ratio != "5" && *ratio != "10" && *ratio != "20" {
+		fmt.Println("invalid ratio, must be 5, 10, or 20")
+		os.Exit(1)
+	}
+	suffix := fmt.Sprintf("@volatility_%s", *ratio)
+	streams := "BTCUSDT" + suffix
+	for _, symbol := range ALL_SYMBOLS {
+		streams += "/" + symbol + suffix
+	}
 
 	u, err := url.Parse(*server + "/stream?streams=" + streams)
 	if err != nil {

@@ -75,10 +75,36 @@ Binance WS → Subscriber → DB（Symbol的`1m`数据）
 GET /fapi/v1/klines?symbol=<symbol>&interval=<period>&limit=<limit>
 
 GET /fapi/v1/volatility?symbol=<symbol>&interval=<5\10\20>&limit=<limit>
+
+// 完整volatility + 指标
+GET /fapi/v1/volatility/all
 ```
 例子：
 ```
 GET /fapi/v1/klines?symbol=btcusdt&interval=15m&limit=100
 
 GET /fapi/v1/volatility?symbol=btcusdt&interval=5&limit=100
+```
+
+```
+// 完整volatility + 指标 示例
+GET /fapi/v1/volatility/all
+
+[
+  {'close': 0.0062024,
+    'count': 7,
+    'dt': '2026-06-09T15:34:40.246Z',
+    'high': 0.006207,
+    'low': 0.0061287,
+    'ma10': 142036649.428571,
+    'open': 0.00614,
+    'period': '1m',
+    'ratio': 1,
+    'start_time': 1767974400000,
+    'symbol': '1000PEPEUSDT',
+    'vd': 142036649.428571,
+    'volatility': '10',
+    'volume': 994256546.0000001},
+  ...(重复)...
+  ]
 ```

@@ -28,18 +28,18 @@ type klineRecord []any
 // Format: [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBaseVol, takerBuyQuoteVol, ignore]
 func newKlineRecord(k *model.BinanceFutureKline) klineRecord {
 	return klineRecord{
-		k.StartTime,                         // 0: Open time
-		formatFloat(k.Open),                 // 1: Open
-		formatFloat(k.High),                 // 2: High
-		formatFloat(k.Low),                  // 3: Low
-		formatFloat(k.Close),                // 4: Close
-		formatFloat(k.Volume),               // 5: Volume
-		k.CloseTime,                         // 6: Close time
-		formatFloat(k.QuoteAssetVolume),     // 7: Quote asset volume
-		k.Trades,                            // 8: Number of trades
-		formatFloat(k.ActiveBuyVolume),      // 9: Taker buy base asset volume
-		formatFloat(k.ActiveBuyQuoteVolume), // 10: Taker buy quote asset volume
-		"0",                                 // 11: Ignore
+		k.StartTime,                             // 0: Open time
+		formatFloat(k.Open),                     // 1: Open
+		formatFloat(k.High),                     // 2: High
+		formatFloat(k.Low),                      // 3: Low
+		formatFloat(k.Close),                    // 4: Close
+		formatFloat(k.Volume),                   // 5: Volume
+		k.CloseTime,                             // 6: Close time
+		formatFloat(k.QuoteAssetVolume),         // 7: Quote asset volume
+		k.Trades,                                // 8: Number of trades
+		formatFloat(k.TakerBuyBaseAssetVolume),  // 9: Taker buy base asset volume
+		formatFloat(k.TakerBuyQuoteAssetVolume), // 10: Taker buy quote asset volume
+		"0",                                     // 11: Ignore
 	}
 }
 
@@ -138,7 +138,7 @@ func (h *klinesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		fmt.Printf("[klines-api] query error: %v\n", err)
-		writeAPIError(w, -1001, "Internal error: failed to query kline data.")
+		writeAPIError(w, -1001, fmt.Sprintf("Internal error: failed to query kline data. %s", err.Error()))
 		return
 	}
 
@@ -228,8 +228,8 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 		sum(volume) AS volume,
 		sum(quote_asset_volume) AS quote_asset_volume,
 		sum(trades) AS trades,
-		sum(active_buy_volume) AS active_buy_volume,
-		sum(active_buy_quote_volume) AS active_buy_quote_volume,
+		sum(taker_buy_base_asset_volume) AS taker_buy_base_asset_volume,
+		sum(taker_buy_quote_asset_volume) AS taker_buy_quote_asset_volume,
 		argMax(close_time, start_time) AS close_time,
 		argMax(dt, start_time) AS dt
 	FROM (
@@ -237,8 +237,8 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 			symbol,
 			%s AS bucket_start,
 			start_time, open, high, low, close, volume,
-			quote_asset_volume, trades, active_buy_volume,
-			active_buy_quote_volume, close_time, dt
+			quote_asset_volume, trades, taker_buy_base_asset_volume,
+			taker_buy_quote_asset_volume, close_time, dt
 		FROM binance_futures_kline
 		WHERE %s
 	)
@@ -246,7 +246,7 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 	ORDER BY bucket_start ASC
 	LIMIT ?
 `, bucketExpr, whereClause)
-
+	fmt.Printf("sql :%s\n", sql)
 	// Args order: [period, whereClause args..., limit]
 	queryArgs := make([]any, 0, len(args)+2)
 	queryArgs = append(queryArgs, interval) // for `? AS period`

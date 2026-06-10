@@ -25,8 +25,9 @@ func main() {
 
 	fmt.Printf("loaded %d subscription(s):\n", len(subscriptions))
 
+	// TODO: PubSubService 需要获得Subscriber的通知事件
 	// Create PubSubService for MQTT aggregation and publishing
-	pubSubService := task.NewPubSubService()
+	pubSubService := task.NewPubSubService(len(subscriptions))
 	pubSubService.SetStorage(storage)
 	go pubSubService.Start()
 
@@ -34,6 +35,11 @@ func main() {
 	wsService := task.NewWebSocketService(pubSubService)
 	wsService.SetStorage(storage)
 	go wsService.Start()
+
+	// Create a shared KlineConnection that all subscribers will use.
+	// This ensures a single WebSocket connection handles all symbols,
+	// routing incoming kline events to the correct subscriber by symbol.
+	klineConn := task.NewKlineConnection()
 
 	// Create and start a Subscriber for each symbol/period pair
 	for _, sub := range subscriptions {
@@ -51,9 +57,14 @@ func main() {
 		// Create and start the Subscriber in a goroutine
 		subscriber := task.NewSubscriber(storage, sub.Symbol, sub.Period)
 
+		// Wire up the shared KlineConnection so all subscribers share
+		// a single WebSocket connection instead of one per subscriber.
+		subscriber.SetKlineConnection(klineConn)
+
 		// Wire up PubSubService to receive processed points from this subscriber
 		// 源数据传递到推送服务
 		subscriber.SetPointChan(pubSubService.PointChan)
+		subscriber.SetEventChan(pubSubService.AlignEventC, pubSubService.LoadHistoryEventC)
 
 		go subscriber.Start(lastTime)
 	}

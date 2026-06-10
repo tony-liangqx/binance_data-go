@@ -7,7 +7,7 @@ import (
 
 	"binance.data.sync/src/model"
 
-	"github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/futures"
 )
 
 // TimestampProvider supplies the latest websocket timestamp to HistorySyncer,
@@ -62,13 +62,13 @@ func (h *HistorySyncer) Sync() {
 		h.tsProvider.SyncDone()
 	}()
 
-	client := binance.NewClient("", "")
+	client := futures.NewClient("", "")
 	fmt.Printf("[history] starting history sync: symbol=%s, period=%s, last_saved=%d\n",
 		h.symbol, h.period, h.timeStamp)
 
 	// 比数据库最后一条时间大
 	currentStart := h.timeStamp + 1
-	batchSize := 1000
+	batchSize := 1500
 
 	for {
 		// If the subscriber hasn't advanced past our last saved point,
@@ -102,26 +102,27 @@ func (h *HistorySyncer) Sync() {
 			time.Sleep(time.Second)
 			continue
 		}
+		fmt.Printf("[history] target: %d, current: %d\n", targetTime, currentStart)
 
 		for _, k := range klines {
 			point := &model.FutureKlinePoint{
-				Symbol:           h.symbol,
-				Period:           h.period,
-				StartTime:        k.OpenTime,
-				DateTime:         k.OpenTime,
-				Open:             mustParseFloat(k.Open),
-				High:             mustParseFloat(k.High),
-				Low:              mustParseFloat(k.Low),
-				Close:            mustParseFloat(k.Close),
-				Volume:           mustParseFloat(k.Volume),
-				CloseTime:        k.CloseTime,
-				QuoteAssetVolume: mustParseFloat(k.QuoteAssetVolume),
-				Trades:           uint32(k.TradeNum),
+				Symbol:                   h.symbol,
+				Period:                   h.period,
+				StartTime:                k.OpenTime,
+				DateTime:                 k.OpenTime,
+				Open:                     mustParseFloat(k.Open),
+				High:                     mustParseFloat(k.High),
+				Low:                      mustParseFloat(k.Low),
+				Close:                    mustParseFloat(k.Close),
+				Volume:                   mustParseFloat(k.Volume),
+				CloseTime:                k.CloseTime,
+				QuoteAssetVolume:         mustParseFloat(k.QuoteAssetVolume),
+				Trades:                   uint32(k.TradeNum),
+				TakerBuyBaseAssetVolume:  mustParseFloat(k.TakerBuyBaseAssetVolume),
+				TakerBuyQuoteAssetVolume: mustParseFloat(k.TakerBuyQuoteAssetVolume),
 			}
 
 			h.savePointFunc(point)
-			fmt.Printf("[history] saved kline: %s %s start=%d close=%s\n",
-				h.symbol, h.period, k.OpenTime, k.Close)
 		}
 
 		// Check if we've caught up to the latest subscriber timestamp
