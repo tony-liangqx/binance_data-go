@@ -11,12 +11,21 @@ import (
 
 // Subscriber subscribes to Binance websocket kline data,
 // filters closed klines, detects data gaps, and triggers HistorySyncer when needed.
+//
+// Multiple Subscriber instances share a single WebSocket connection via
+// KlineConnection, which dispatches incoming kline events to the correct
+// Subscriber based on the symbol in the event data.
 type Subscriber struct {
 	timeStamp int64
 	storage   model.Storage
 	symbol    string
 	period    string
 	mu        sync.RWMutex
+
+	// conn is the shared KlineConnection that this subscriber registers with.
+	// When set, the subscriber does not create its own WebSocket connection;
+	// instead it receives kline events dispatched by the shared connection.
+	conn *KlineConnection
 
 	// Sync coordination — used when HistorySyncer is backfilling data
 	syncing bool
@@ -60,6 +69,13 @@ func (s *Subscriber) SetPointChan(ch chan<- *model.AggregatedFutureKline) {
 func (s *Subscriber) SetEventChan(alignEvent, loadHistoryEvent chan bool) {
 	s.alignEventC = alignEvent
 	s.loadHistoryEventC = loadHistoryEvent
+}
+
+// SetKlineConnection sets the shared KlineConnection for this subscriber.
+// When set, the subscriber will register with this connection instead of
+// creating its own individual WebSocket connection.
+func (s *Subscriber) SetKlineConnection(conn *KlineConnection) {
+	s.conn = conn
 }
 
 // GetTimeStamp returns the latest websocket timestamp (thread-safe).
@@ -276,8 +292,18 @@ func (s *Subscriber) Start(timeStamp int64) {
 	}
 }
 
-// start begins the actual websocket kline subscription loop
+// start registers this subscriber with the shared KlineConnection.
+// If no shared connection is configured (e.g. in tests), it falls back to
+// creating its own individual WebSocket connection for backward compatibility.
 func (s *Subscriber) start() {
+	if s.conn != nil {
+		s.conn.Register(s)
+		// Block forever — HandleKline will be called by the shared
+		// connection's dispatcher when kline events arrive for this symbol.
+		select {}
+	}
+
+	// Fallback: individual connection (used in tests)
 	doneC, stopC, err := futures.WsKlineServe(s.symbol, s.period, s.handleKline, s.handleError)
 	if err != nil {
 		fmt.Printf("failed to start kline websocket: %v\n", err)
@@ -286,7 +312,6 @@ func (s *Subscriber) start() {
 
 	fmt.Printf("subscriber started: symbol=%s, period=%s\n", s.symbol, s.period)
 
-	// Block until the connection is closed
 	<-doneC
 	fmt.Println("subscriber websocket connection closed")
 	_ = stopC
