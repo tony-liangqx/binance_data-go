@@ -1,7 +1,7 @@
 package model
 
 import (
-	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"time"
@@ -49,7 +49,7 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 	// 搜索最新一条AggBinanceFutureKline数据的close_time，获得第一条start_time大于close_time的BinanceFutureKline类型数据
 	lastPoint, err := storage.GetLastVolatilityPoint(symbol, vName)
 	if err != nil {
-		fmt.Printf("[volatility_data_writer(%s %s): %s\n", symbol, vName, err.Error())
+		log.Printf("[volatility_data_writer(%s %s): %s\n", symbol, vName, err.Error())
 	}
 
 	vd := &VolatilityDataWriter{
@@ -60,7 +60,7 @@ func NewVolatilityDataWriter(symbol string, volatility float64, storage Storage)
 	}
 	if lastPoint != nil && lastPoint.StartTime != 0 {
 		// BinanceFutureKline类型
-		fmt.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
+		log.Printf("[volatility_data_writer(%s %s)] loaded last point: start_time: %d\n", symbol, vName, lastPoint.StartTime)
 		vd.LoadData(lastPoint)
 		return vd
 	}
@@ -189,7 +189,7 @@ func (a *VolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutureKl
 			return nil, err
 		}
 
-		fmt.Printf("[volatility_data_writer] aggregated %s/%s: %d points, start=%d -> end=%d, changePct=%.4f%%\n",
+		log.Printf("[volatility_data_writer] aggregated %s/%s: %d points, start=%d -> end=%d, changePct=%.4f%%\n",
 			a.symbol, a.Volatility(), a.count, needPub.StartTime, needPub.CloseTime, changePct)
 
 		// Reset window state, using the current point as the start of the next window

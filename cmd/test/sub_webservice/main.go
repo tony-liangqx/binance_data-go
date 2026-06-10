@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"os/signal"
@@ -35,7 +36,7 @@ func main() {
 	ratio := flag.String("ratio", "10", "volatility level")
 	flag.Parse()
 	if *ratio != "5" && *ratio != "10" && *ratio != "20" {
-		fmt.Println("invalid ratio, must be 5, 10, or 20")
+		log.Println("invalid ratio, must be 5, 10, or 20")
 		os.Exit(1)
 	}
 	suffix := fmt.Sprintf("@volatility_%s", *ratio)
@@ -46,21 +47,21 @@ func main() {
 
 	u, err := url.Parse(*server + "/stream?streams=" + streams)
 	if err != nil {
-		fmt.Printf("failed to parse URL: %v\n", err)
+		log.Printf("failed to parse URL: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("connecting to %s\n", u.String())
+	log.Printf("connecting to %s\n", u.String())
 
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		fmt.Printf("dial error: %v\n", err)
+		log.Printf("dial error: %v\n", err)
 		os.Exit(1)
 	}
 	defer c.Close()
 
-	fmt.Println("connected, waiting for messages...")
-	fmt.Println("press Ctrl+C to exit")
+	log.Println("connected, waiting for messages...")
+	log.Println("press Ctrl+C to exit")
 
 	done := make(chan struct{})
 
@@ -69,10 +70,10 @@ func main() {
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
-				fmt.Printf("read error: %v\n", err)
+				log.Printf("read error: %v\n", err)
 				return
 			}
-			fmt.Println(string(message))
+			log.Println(string(message))
 		}
 	}()
 
@@ -80,10 +81,10 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt)
 	<-sigCh
 
-	fmt.Println("\ninterrupt received, closing connection...")
+	log.Println("\ninterrupt received, closing connection...")
 	if err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
-		fmt.Printf("write close error: %v\n", err)
+		log.Printf("write close error: %v\n", err)
 	}
 	<-done
-	fmt.Println("connection closed")
+	log.Println("connection closed")
 }

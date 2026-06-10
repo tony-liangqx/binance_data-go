@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"log"
 
 	"binance.data.sync/src/model"
 )
@@ -61,7 +62,7 @@ func (s *SMAIndicator) ColdStart(symbol, period string) {
 	s.current = sum / float64(len(s.values))
 	s.ready = true
 
-	fmt.Printf("[indicator] SMA(%d) cold start for %s/%s: initial value=%.2f (window=%d)\n",
+	log.Printf("[indicator] SMA(%d) cold start for %s/%s: initial value=%.2f (window=%d)\n",
 		s.window, symbol, period, s.current, len(s.values))
 }
 
@@ -86,7 +87,7 @@ func (s *SMAIndicator) Calculate(kline *model.AggregatedFutureKline) {
 	}
 	s.current = sum / float64(len(s.values))
 
-	fmt.Printf("[indicator] SMA(%d) calculated for %s/%s start=%d: value=%.2f\n",
+	log.Printf("[indicator] SMA(%d) calculated for %s/%s start=%d: value=%.2f\n",
 		s.window, kline.Symbol, kline.Period, kline.StartTime, s.current)
 }
 
@@ -127,7 +128,7 @@ func (v *VolumeDensityIndicator) ColdStart(symbol, period string) {
 	// TODO: load historical aggregated klines from DB and pre-populate
 	// totalVolume / totalCount
 	v.current = 0
-	fmt.Printf("[indicator] VolumeDensity cold start for %s/%s: initial value=%.4f\n",
+	log.Printf("[indicator] VolumeDensity cold start for %s/%s: initial value=%.4f\n",
 		symbol, period, v.current)
 }
 
@@ -139,7 +140,7 @@ func (v *VolumeDensityIndicator) Calculate(kline *model.AggregatedFutureKline) {
 		v.current = 0
 	}
 
-	fmt.Printf("[indicator] VolumeDensity calculated for %s/%s start=%d: value=%.4f (totalVolume=%.2f, totalCount=%d)\n",
+	log.Printf("[indicator] VolumeDensity calculated for %s/%s start=%d: value=%.4f (totalVolume=%.2f, totalCount=%d)\n",
 		kline.Symbol, kline.Period, kline.StartTime, v.current, kline.Volume, kline.Count)
 }
 

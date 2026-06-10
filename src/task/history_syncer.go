@@ -2,7 +2,7 @@ package task
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"time"
 
 	"binance.data.sync/src/model"
@@ -63,7 +63,7 @@ func (h *HistorySyncer) Sync() {
 	}()
 
 	client := futures.NewClient("", "")
-	fmt.Printf("[history] starting history sync: symbol=%s, period=%s, last_saved=%d\n",
+	log.Printf("[history] starting history sync: symbol=%s, period=%s, last_saved=%d\n",
 		h.symbol, h.period, h.timeStamp)
 
 	// 比数据库最后一条时间大
@@ -75,7 +75,7 @@ func (h *HistorySyncer) Sync() {
 		// wait for more websocket data
 		targetTime := h.tsProvider.GetTimeStamp()
 		if currentStart > targetTime {
-			fmt.Printf("[history] caught up to subscriber timestamp %d\n", targetTime)
+			log.Printf("[history] caught up to subscriber timestamp %d\n", targetTime)
 			break
 		}
 
@@ -89,7 +89,7 @@ func (h *HistorySyncer) Sync() {
 			Limit(batchSize).
 			Do(context.TODO())
 		if err != nil {
-			fmt.Printf("[history] failed to fetch klines: %v\n", err)
+			log.Printf("[history] failed to fetch klines: %v\n", err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -102,7 +102,7 @@ func (h *HistorySyncer) Sync() {
 			time.Sleep(time.Second)
 			continue
 		}
-		fmt.Printf("[history] target: %d, current: %d\n", targetTime, currentStart)
+		log.Printf("[history] target: %d, current: %d\n", targetTime, currentStart)
 
 		for _, k := range klines {
 			point := &model.FutureKlinePoint{
@@ -128,7 +128,7 @@ func (h *HistorySyncer) Sync() {
 		// Check if we've caught up to the latest subscriber timestamp
 		lastKline := klines[len(klines)-1]
 		if lastKline.OpenTime >= targetTime {
-			fmt.Printf("[history] %s %s caught up to target time %d\n", h.symbol, h.period, targetTime)
+			log.Printf("[history] %s %s caught up to target time %d\n", h.symbol, h.period, targetTime)
 			break
 		}
 

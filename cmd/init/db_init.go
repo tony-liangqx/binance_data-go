@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"strconv"
 
 	"binance.data.sync/src/helper"
@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("initializing database tables...")
+	log.Println("initializing database tables...")
 
 	// GetStorage creates the DB connection and auto-migrates BinanceSpotKline
 	storage := helper.GetStorage()
@@ -21,23 +21,23 @@ func main() {
 	// Auto migrate the schema
 	if err := db.
 		AutoMigrate(&model.BinanceFutureKline{}); err != nil {
-		panic(fmt.Errorf("failed to auto migrate: %w", err))
+		log.Fatalf("failed to auto migrate: %v", err)
 	}
 
 	if err := db.Set("gorm:table_options", `
-ENGINE = ReplacingMergeTree()
-ORDER BY (symbol, period, volatility, start_time)
-PRIMARY KEY (symbol, period, volatility, start_time)
-`).AutoMigrate(&model.AggBinanceFutureKline{}); err != nil {
-		panic(fmt.Errorf("failed to auto migrate: %w", err))
+	ENGINE = ReplacingMergeTree()
+	ORDER BY (symbol, period, volatility, start_time)
+	PRIMARY KEY (symbol, period, volatility, start_time)
+	`).AutoMigrate(&model.AggBinanceFutureKline{}); err != nil {
+		log.Fatalf("failed to auto migrate: %v", err)
 	}
 
-	fmt.Println("database tables created successfully")
+	log.Println("database tables created successfully")
 
 	// Read subscriptions (symbol + period pairs) from config.json
 	subscriptions := helper.GetSubscriptions()
 	if len(subscriptions) == 0 {
-		fmt.Println("no subscriptions found in config.json")
+		log.Println("no subscriptions found in config.json")
 		return
 	}
 
@@ -47,7 +47,7 @@ PRIMARY KEY (symbol, period, volatility, start_time)
 	startTime := int64(1767974400000)
 
 	for _, sub := range subscriptions {
-		fmt.Printf("initializing data for symbol=%s, period=%s\n", sub.Symbol, sub.Period)
+		log.Printf("initializing data for symbol=%s, period=%s\n", sub.Symbol, sub.Period)
 
 		// Create volatility data writers for aggregated kline table
 		aggregators := []*model.VolatilityDataWriter{
@@ -64,11 +64,11 @@ PRIMARY KEY (symbol, period, volatility, start_time)
 			Limit(1).
 			Do(context.TODO())
 		if err != nil {
-			fmt.Printf("failed to fetch klines for %s %s: %v\n", sub.Symbol, sub.Period, err)
+			log.Printf("failed to fetch klines for %s %s: %v\n", sub.Symbol, sub.Period, err)
 			continue
 		}
 
-		fmt.Printf("fetched %d klines for %s %s\n", len(klines), sub.Symbol, sub.Period)
+		log.Printf("fetched %d klines for %s %s\n", len(klines), sub.Symbol, sub.Period)
 
 		for _, k := range klines {
 			point := &model.FutureKlinePoint{
@@ -92,30 +92,30 @@ PRIMARY KEY (symbol, period, volatility, start_time)
 
 			// 1) Save to BinanceFutureKline table
 			if err := storage.Commit(point); err != nil {
-				fmt.Printf("failed to save kline: %v\n", err)
+				log.Printf("failed to save kline: %v\n", err)
 				continue
 			}
 
 			// 2) Process through volatility aggregators -> AggBinanceFutureKline table
 			for _, aggregator := range aggregators {
 				if _, err := aggregator.Add(point); err != nil {
-					fmt.Printf("failed to aggregate point: %v\n", err)
+					log.Printf("failed to aggregate point: %v\n", err)
 				}
 			}
 		}
 
-		fmt.Printf("initialization completed for symbol=%s, period=%s, total klines=%d\n",
+		log.Printf("initialization completed for symbol=%s, period=%s, total klines=%d\n",
 			sub.Symbol, sub.Period, len(klines))
 	}
 
-	fmt.Println("database initialization completed")
+	log.Println("database initialization completed")
 }
 
 // mustParseFloat parses a string to float64, defaults to 0 on error
 func mustParseFloat(s string) float64 {
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		fmt.Printf("warning: failed to parse float %q: %v\n", s, err)
+		log.Printf("warning: failed to parse float %q: %v\n", s, err)
 		return 0
 	}
 	return v

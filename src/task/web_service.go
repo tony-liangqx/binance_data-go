@@ -3,6 +3,7 @@ package task
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -92,18 +93,18 @@ func (s *WebSocketService) start() {
 	// Register REST API handlers
 	if s.storage != nil {
 		http.Handle("/fapi/v1/klines", &klinesHandler{storage: s.storage})
-		fmt.Printf("[http-server] registered REST API: /fapi/v1/klines\n")
+		log.Printf("[http-server] registered REST API: /fapi/v1/klines\n")
 
 		http.Handle("/fapi/v1/volatility", &volatilityHandler{storage: s.storage})
-		fmt.Printf("[http-server] registered REST API: /fapi/v1/volatility\n")
+		log.Printf("[http-server] registered REST API: /fapi/v1/volatility\n")
 
 		http.Handle("/fapi/v1/volatility/all", &allVolatilityPointsHandler{storage: s.storage})
-		fmt.Printf("[http-server] registered REST API: /fapi/v1/volatility/all\n")
+		log.Printf("[http-server] registered REST API: /fapi/v1/volatility/all\n")
 	}
 
-	fmt.Printf("[ws-server] starting WebSocket server on %s\n", s.addr)
+	log.Printf("[ws-server] starting WebSocket server on %s\n", s.addr)
 	if err := http.ListenAndServe(s.addr, nil); err != nil {
-		fmt.Printf("[ws-server] failed to start server: %v\n", err)
+		log.Printf("[ws-server] failed to start server: %v\n", err)
 		panic(err)
 	}
 }
@@ -124,7 +125,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	fmt.Printf("[ws-server] new connection request: streams=%v\n", streamNames)
+	log.Printf("[ws-server] new connection request: streams=%v\n", streamNames)
 
 	// 检查参数正确性
 	symbols := make([]string, 0, len(streamNames))
@@ -132,7 +133,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		// Parse symbol and period, and create aggregator for periods
 		symbol, kind, period, ok := parseStreamName(streamName)
 		if !ok {
-			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
+			log.Printf("debug: parseStreamName error: %s\n", streamName)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -156,7 +157,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	// Upgrade HTTP to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Printf("[ws-server] upgrade failed: %v\n", err)
+		log.Printf("[ws-server] upgrade failed: %v\n", err)
 		return
 	}
 
@@ -177,7 +178,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		// 如果是volatility类型，period为5、10、20等
 		symbol, kind, period, ok := parseStreamName(streamName)
 		if !ok {
-			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
+			log.Printf("debug: parseStreamName error: %s\n", streamName)
 			continue
 		}
 		point := s.pubSrv.Subscribe(symbol, kind, period)
@@ -185,7 +186,7 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		// 发送缓存message
 		buf, err := json.Marshal(point)
 		if err != nil {
-			fmt.Printf("GetLatestPoint Marshal error:%s\n", err.Error())
+			log.Printf("GetLatestPoint Marshal error:%s\n", err.Error())
 			continue
 		}
 		if len(buf) == 0 {
@@ -282,7 +283,7 @@ func (s *WebSocketService) writePump(client *wsClient) {
 
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := client.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				fmt.Printf("[ws-server] write error: %v\n", err)
+				log.Printf("[ws-server] write error: %v\n", err)
 				return
 			}
 
@@ -291,7 +292,7 @@ func (s *WebSocketService) writePump(client *wsClient) {
 			pingPayload := fmt.Sprintf(`{"ping":%d}`, time.Now().UnixMilli())
 			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := client.conn.WriteMessage(websocket.PingMessage, []byte(pingPayload)); err != nil {
-				fmt.Printf("[ws-server] ping error: %v\n", err)
+				log.Printf("[ws-server] ping error: %v\n", err)
 				return
 			}
 		}
@@ -307,14 +308,14 @@ func (s *WebSocketService) readPump(client *wsClient) {
 
 	client.conn.SetReadDeadline(time.Now().Add(pongWait))
 	client.conn.SetPongHandler(func(appData string) error {
-		fmt.Printf("[ws-server] received PONG: %s\n", appData)
+		log.Printf("[ws-server] received PONG: %s\n", appData)
 		client.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
 
 	client.conn.SetPingHandler(func(appData string) error {
 		// Respond to server-side ping with pong (should not normally happen from client)
-		fmt.Printf("[ws-server] received unexpected PING from client: %s\n", appData)
+		log.Printf("[ws-server] received unexpected PING from client: %s\n", appData)
 		client.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return client.conn.WriteMessage(websocket.PongMessage, []byte(appData))
 	})
@@ -323,7 +324,7 @@ func (s *WebSocketService) readPump(client *wsClient) {
 		_, message, err := client.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				fmt.Printf("[ws-server] read error: %v\n", err)
+				log.Printf("[ws-server] read error: %v\n", err)
 			}
 			// Close the send channel to stop writePump
 			close(client.send)
@@ -334,7 +335,7 @@ func (s *WebSocketService) readPump(client *wsClient) {
 		var msg map[string]interface{}
 		if err := json.Unmarshal(message, &msg); err == nil {
 			if _, ok := msg["pong"]; ok {
-				fmt.Printf("[ws-server] received PONG message: %s\n", string(message))
+				log.Printf("[ws-server] received PONG message: %s\n", string(message))
 			}
 		}
 	}

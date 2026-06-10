@@ -1,29 +1,29 @@
 package main
 
 import (
-	"fmt"
+	"log"
 
 	"binance.data.sync/src/helper"
 	"binance.data.sync/src/task"
 )
 
 func main() {
-	fmt.Println("binance kline data sync starting...")
+	log.Println("binance kline data sync starting...")
 
 	// Get database storage (shared by all subscribers)
 	storage := helper.GetStorage()
 	defer func() {
-		fmt.Println("binance kline data sync stopped")
+		log.Println("binance kline data sync stopped")
 	}()
 
 	// Read all subscriptions from config
 	subscriptions := helper.GetSubscriptions()
 	if len(subscriptions) == 0 {
-		fmt.Println("no subscriptions configured, exiting")
+		log.Println("no subscriptions configured, exiting")
 		return
 	}
 
-	fmt.Printf("loaded %d subscription(s):\n", len(subscriptions))
+	log.Printf("loaded %d subscription(s):\n", len(subscriptions))
 
 	// TODO: PubSubService 需要获得Subscriber的通知事件
 	// Create PubSubService for MQTT aggregation and publishing
@@ -43,16 +43,16 @@ func main() {
 
 	// Create and start a Subscriber for each symbol/period pair
 	for _, sub := range subscriptions {
-		fmt.Printf("  symbol=%s, period=%s\n", sub.Symbol, sub.Period)
+		log.Printf("  symbol=%s, period=%s\n", sub.Symbol, sub.Period)
 
 		// Get the last saved timestamp to pass to the subscriber
 		lastTime, err := storage.GetLastTimeStamp(sub.Symbol, sub.Period)
 		if err != nil {
-			fmt.Printf("failed to get last timestamp for %s/%s: %v, starting from 0\n",
+			log.Printf("failed to get last timestamp for %s/%s: %v, starting from 0\n",
 				sub.Symbol, sub.Period, err)
 			lastTime = 0
 		}
-		fmt.Printf("[%s/%s] last saved timestamp: %d\n", sub.Symbol, sub.Period, lastTime)
+		log.Printf("[%s/%s] last saved timestamp: %d\n", sub.Symbol, sub.Period, lastTime)
 
 		// Create and start the Subscriber in a goroutine
 		subscriber := task.NewSubscriber(storage, sub.Symbol, sub.Period)
@@ -69,7 +69,7 @@ func main() {
 		go subscriber.Start(lastTime)
 	}
 
-	fmt.Println("all subscribers started, waiting for kline data...")
+	log.Println("all subscribers started, waiting for kline data...")
 
 	// Block the main goroutine indefinitely
 	select {}
