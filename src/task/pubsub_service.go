@@ -54,6 +54,12 @@ type PubSubService struct {
 	latestPoints map[string]*model.AggregatedFutureKline
 	latestMu     sync.RWMutex
 
+	// localSubscribers maps topic -> set of channels for in-process subscribers.
+	// This allows WebSocketService (and other in-process consumers) to receive
+	// aggregated data directly without going through MQTT.
+	localSubscribers map[string]map[chan []byte]struct{}
+	localMu          sync.RWMutex
+
 	// 通知事件通道
 	AlignEventC       chan bool
 	LoadHistoryEventC chan bool
@@ -89,12 +95,41 @@ func NewPubSubServiceWithBroker(broker string, eventCount int) *PubSubService {
 		AlignEventC:       make(chan bool),
 		LoadHistoryEventC: make(chan bool),
 		eventCount:        eventCount,
+		localSubscribers:  make(map[string]map[chan []byte]struct{}),
 	}
 }
 
 // SetStorage sets the storage backend for persisting aggregated kline data.
 func (s *PubSubService) SetStorage(storage model.Storage) {
 	s.storage = storage
+}
+
+// SubscribeLocal registers a channel to receive raw JSON payloads for a given topic.
+// This allows in-process consumers (e.g. WebSocketService) to receive aggregated
+// data directly without going through MQTT.
+func (s *PubSubService) SubscribeLocal(topic string, ch chan []byte) {
+	s.localMu.Lock()
+	defer s.localMu.Unlock()
+
+	if _, ok := s.localSubscribers[topic]; !ok {
+		s.localSubscribers[topic] = make(map[chan []byte]struct{})
+	}
+	s.localSubscribers[topic][ch] = struct{}{}
+	fmt.Printf("[pubsub] local subscriber added for topic %s\n", topic)
+}
+
+// UnsubscribeLocal removes a channel from the local subscribers for a given topic.
+func (s *PubSubService) UnsubscribeLocal(topic string, ch chan []byte) {
+	s.localMu.Lock()
+	defer s.localMu.Unlock()
+
+	if subscribers, ok := s.localSubscribers[topic]; ok {
+		delete(subscribers, ch)
+		if len(subscribers) == 0 {
+			delete(s.localSubscribers, topic)
+		}
+		fmt.Printf("[pubsub] local subscriber removed for topic %s\n", topic)
+	}
 }
 
 // Subscribe creates a symbolAggregator for the given (symbol, period) pair
@@ -456,6 +491,20 @@ func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 		return
 	}
 
+	// Dispatch to local (in-process) subscribers first
+	s.localMu.RLock()
+	if subscribers, ok := s.localSubscribers[topic]; ok {
+		for ch := range subscribers {
+			select {
+			case ch <- payload:
+			default:
+				// Channel full, skip
+			}
+		}
+	}
+	s.localMu.RUnlock()
+
+	// Publish to MQTT for external consumers
 	token := s.mqttClient.Publish(topic, 1, false, payload)
 	token.Wait()
 	if token.Error() != nil {

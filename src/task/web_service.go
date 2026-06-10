@@ -5,18 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"binance.data.sync/src/model"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+
 	"github.com/gorilla/websocket"
 )
 
 const (
-	// Default MQTT broker address for the WebSocket service
-	wsDefaultMQTTBroker = "tcp://127.0.0.1:1883"
-
 	// pingInterval is how often the server sends PING to connected clients
 	pingInterval = 20 * time.Second
 
@@ -44,29 +40,16 @@ type wsClient struct {
 	send    chan []byte
 }
 
-// topicSubscription manages MQTT topic subscriptions with reference counting.
-type topicSubscription struct {
-	refCount int
-}
-
-// WebSocketService is a WebSocket server that relays kline data from MQTT
+// WebSocketService is a WebSocket server that relays kline data from PubSubService
 // to connected WebSocket clients. It supports multi-stream subscriptions
 // via the /stream?streams=<name1>/<name2>/... URL format.
+//
+// Unlike the previous implementation that relied on MQTT as middleware, this
+// version subscribes directly to PubSubService via Go channels, eliminating
+// the external MQTT dependency for internal data distribution.
 type WebSocketService struct {
-	pubSrv   *PubSubService
-	broker   string
-	addr     string
-	mqttOpts *mqtt.ClientOptions
-
-	// mqttClient is the shared MQTT client for receiving data
-	mqttClient mqtt.Client
-
-	// clients maps topic -> set of wsClient channels subscribed to that topic
-	clients map[string]map[chan []byte]struct{}
-	mu      sync.RWMutex
-
-	// topics tracks MQTT topic subscriptions with reference counts
-	topics map[string]*topicSubscription
+	pubSrv *PubSubService
+	addr   string
 
 	// storage is used by REST API handlers (e.g., /fapi/v1/klines)
 	// to query historical kline data from the database.
@@ -75,29 +58,19 @@ type WebSocketService struct {
 
 // NewWebSocketService creates a new WebSocketService with default settings.
 func NewWebSocketService(pubSrv *PubSubService) *WebSocketService {
-	return NewWebSocketServiceWithBroker(pubSrv, wsDefaultMQTTBroker, wsServerAddr)
+	return &WebSocketService{
+		pubSrv: pubSrv,
+		addr:   wsServerAddr,
+	}
 }
 
-// NewWebSocketServiceWithBroker creates a new WebSocketService with custom MQTT broker and server address.
+// NewWebSocketServiceWithBroker creates a new WebSocketService with custom server address.
+// The broker parameter is retained for API compatibility but is ignored since
+// PubSubService handles topic subscription internally via Go channels.
 func NewWebSocketServiceWithBroker(pubSrv *PubSubService, broker, addr string) *WebSocketService {
-	clientID := fmt.Sprintf("binance_ws_%d", time.Now().UnixNano())
-
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(broker)
-	opts.SetClientID(clientID)
-	opts.SetCleanSession(true)
-	opts.SetAutoReconnect(true)
-	opts.SetConnectTimeout(10 * time.Second)
-	opts.SetKeepAlive(30 * time.Second)
-	opts.SetOrderMatters(false)
-
 	return &WebSocketService{
-		pubSrv:   pubSrv,
-		broker:   broker,
-		addr:     addr,
-		mqttOpts: opts,
-		clients:  make(map[string]map[chan []byte]struct{}),
-		topics:   make(map[string]*topicSubscription),
+		pubSrv: pubSrv,
+		addr:   addr,
 	}
 }
 
@@ -111,17 +84,8 @@ func (s *WebSocketService) Start() {
 	s.start()
 }
 
-// start connects to MQTT and starts the HTTP/WS server.
+// start starts the HTTP/WS server.
 func (s *WebSocketService) start() {
-	// Connect to MQTT broker
-	client := mqtt.NewClient(s.mqttOpts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		fmt.Printf("[ws-server] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
-		panic(token.Error())
-	}
-	s.mqttClient = client
-	fmt.Printf("[ws-server] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.mqttOpts.ClientID)
-
 	// Register WebSocket handler
 	http.HandleFunc("/stream", s.handleStream)
 
@@ -166,14 +130,14 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	symbols := make([]string, 0, len(streamNames))
 	for _, streamName := range streamNames {
 		// Parse symbol and period, and create aggregator for periods
-		symbol, kinde, period, ok := parseStreamName(streamName)
+		symbol, kind, period, ok := parseStreamName(streamName)
 		if !ok {
 			fmt.Printf("debug: parseStreamName error: %s\n", streamName)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		symbols = append(symbols, symbol)
-		switch kinde {
+		switch kind {
 		case "volatility":
 			switch period {
 			case "10", "20", "30", "5":
@@ -189,14 +153,6 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// TODO: 只允许列表内的
-	// for _, symbol := range symbols {
-	// 	if !contains(symbol, streamNames) {
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 		return
-	// 	}
-	// }
-
 	// Upgrade HTTP to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -211,10 +167,11 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 		send:    make(chan []byte, 256),
 	}
 
-	// Subscribe to MQTT topics for each stream and register the client
+	// Subscribe to topics for each stream and register the client directly
+	// with PubSubService via Go channels (no MQTT middleware).
 	for _, streamName := range streamNames {
-		topic := s.streamNameToTopic(streamName)
-		s.subscribeTopic(topic, client.send)
+		topic := streamNameToTopic(streamName)
+		s.pubSrv.SubscribeLocal(topic, client.send)
 
 		// Parse symbol and period, and create aggregator for periods
 		// 如果是volatility类型，period为5、10、20等
@@ -242,11 +199,14 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	go s.readPump(client)
 }
 
-// streamNameToTopic converts a stream name to an MQTT topic.
+// streamNameToTopic converts a stream name to an internal topic string.
 // Example: "btcusdt@kline_1m" -> "binance/aggregated/btcusdt/1m"
 // Example: "btcusdt@volatility_10" -> "binance/volatility/btcusdt/10"
-func (s *WebSocketService) streamNameToTopic(streamName string) string {
-	// Parse "symbol@kline_period" format
+//
+// The topic string is used for both MQTT publishing (in PubSubService) and
+// local in-process subscriptions.
+func streamNameToTopic(streamName string) string {
+	// Parse "symbol@kind_period" format
 	parts := strings.SplitN(streamName, "@", 2)
 	if len(parts) < 2 {
 		// Fallback: use stream name as-is under the prefix
@@ -292,86 +252,6 @@ func parseStreamName(streamName string) (symbol, kind, period string, ok bool) {
 	return symbol, kind, period, true
 }
 
-// subscribeTopic subscribes to an MQTT topic and registers the client's send channel.
-func (s *WebSocketService) subscribeTopic(topic string, sendChan chan []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Register client channel for this topic
-	if _, ok := s.clients[topic]; !ok {
-		s.clients[topic] = make(map[chan []byte]struct{})
-	}
-	s.clients[topic][sendChan] = struct{}{}
-
-	// Subscribe to MQTT topic if not already subscribed
-	if _, ok := s.topics[topic]; !ok {
-		s.topics[topic] = &topicSubscription{refCount: 0}
-	}
-
-	sub := s.topics[topic]
-	if sub.refCount == 0 {
-		// First subscription to this topic
-		token := s.mqttClient.Subscribe(topic, 1, func(client mqtt.Client, msg mqtt.Message) {
-			s.dispatchMessage(msg.Topic(), msg.Payload())
-		})
-		token.Wait()
-		if token.Error() != nil {
-			fmt.Printf("[ws-server] failed to subscribe to MQTT topic %s: %v\n", topic, token.Error())
-		} else {
-			fmt.Printf("[ws-server] subscribed to MQTT topic: %s\n", topic)
-		}
-	}
-	sub.refCount++
-
-	fmt.Printf("[ws-server] client subscribed to topic %s (refCount=%d)\n", topic, sub.refCount)
-}
-
-// unsubscribeTopic unsubscribes from an MQTT topic and removes the client's send channel.
-func (s *WebSocketService) unsubscribeTopic(topic string, sendChan chan []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Remove client channel from this topic
-	if clients, ok := s.clients[topic]; ok {
-		delete(clients, sendChan)
-		if len(clients) == 0 {
-			delete(s.clients, topic)
-		}
-	}
-
-	// Decrement reference count and unsubscribe if no more clients
-	if sub, ok := s.topics[topic]; ok {
-		sub.refCount--
-		if sub.refCount <= 0 {
-			token := s.mqttClient.Unsubscribe(topic)
-			token.Wait()
-			if token.Error() != nil {
-				fmt.Printf("[ws-server] failed to unsubscribe from MQTT topic %s: %v\n", topic, token.Error())
-			} else {
-				fmt.Printf("[ws-server] unsubscribed from MQTT topic: %s\n", topic)
-			}
-			delete(s.topics, topic)
-		}
-	}
-}
-
-// dispatchMessage sends an MQTT message payload to all WebSocket clients
-// subscribed to the given topic.
-func (s *WebSocketService) dispatchMessage(topic string, payload []byte) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if clients, ok := s.clients[topic]; ok {
-		for sendChan := range clients {
-			select {
-			case sendChan <- payload:
-			default:
-				// Client channel full, skip
-			}
-		}
-	}
-}
-
 // writePump writes messages from the send channel to the WebSocket connection.
 // It also sends PING messages every pingInterval.
 func (s *WebSocketService) writePump(client *wsClient) {
@@ -379,10 +259,10 @@ func (s *WebSocketService) writePump(client *wsClient) {
 	defer func() {
 		ticker.Stop()
 		client.conn.Close()
-		// Clean up MQTT topic subscriptions and aggregator references
+		// Clean up local subscriptions and aggregator references
 		for _, streamName := range client.streams {
-			topic := s.streamNameToTopic(streamName)
-			s.unsubscribeTopic(topic, client.send)
+			topic := streamNameToTopic(streamName)
+			s.pubSrv.UnsubscribeLocal(topic, client.send)
 
 			// Unsubscribe aggregator for non-1m periods
 			if symbol, kind, period, ok := parseStreamName(streamName); ok {
@@ -423,9 +303,6 @@ func (s *WebSocketService) writePump(client *wsClient) {
 func (s *WebSocketService) readPump(client *wsClient) {
 	defer func() {
 		client.conn.Close()
-		// Close the send channel to signal writePump to clean up
-		// Note: we don't close it here because writePump uses it.
-		// Instead, we wait for the connection to close naturally.
 	}()
 
 	client.conn.SetReadDeadline(time.Now().Add(pongWait))
