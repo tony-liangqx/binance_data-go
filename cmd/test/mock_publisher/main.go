@@ -10,7 +10,7 @@ import (
 
 func main() {
 	// Create PubSubService (uses default MQTT broker tcp://127.0.0.1:1883)
-	pubSubService := task.NewPubSubService()
+	pubSubService := task.NewPubSubService(1)
 	go pubSubService.Start()
 
 	// Give it a moment to connect to MQTT

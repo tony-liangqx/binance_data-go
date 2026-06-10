@@ -75,6 +75,9 @@ Binance WS → Subscriber → DB（Symbol的`1m`数据）
 GET /fapi/v1/klines?symbol=<symbol>&interval=<period>&limit=<limit>
 
 GET /fapi/v1/volatility?symbol=<symbol>&interval=<5\10\20>&limit=<limit>
+
+// 完整volatility + 指标
+GET /fapi/v1/volatility/all
 ```
 例子：
 ```

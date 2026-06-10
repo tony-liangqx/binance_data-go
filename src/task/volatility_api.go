@@ -270,7 +270,7 @@ SETTINGS
 	args = append(args, limit)
 
 	// 4. 执行 GORM 原生 SQL 查询
-	if err := db.Debug().Raw(sql, args...).Scan(&klines).Error; err != nil {
+	if err := db.Raw(sql, args...).Scan(&klines).Error; err != nil {
 		return nil, err
 	}
 	return klines, nil
@@ -282,6 +282,90 @@ func QueryVolatilityWindow(db *gorm.DB, symbol, interval string) ([]model.AggBin
 		Where("volatility = ?", interval).Order("start_time DESC").Limit(10)
 	var points []model.AggBinanceFutureKline
 	if err := query.Find(&points).Error; err != nil {
+		return nil, err
+	}
+	return points, nil
+}
+
+// allVolatilityPointsHandler handles GET /fapi/v1/volatility/all requests.
+// It returns all volatility points for all symbols and all volatility levels.
+type allVolatilityPointsHandler struct {
+	storage model.Storage
+}
+
+// ServeHTTP implements the http.Handler interface.
+func (h *allVolatilityPointsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, -1102, "Method not allowed.")
+		return
+	}
+
+	db := h.storage.GetDB()
+	if db == nil {
+		writeAPIError(w, -1001, "Internal error: database not available.")
+		return
+	}
+
+	points, err := GetAllVolatilityPoints(db)
+	if err != nil {
+		fmt.Printf("[volatility-api] GetAllVolatilityPoints query error: %v\n", err)
+		writeAPIError(w, -1001, "Internal error: failed to query all volatility points.")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(points); err != nil {
+		fmt.Printf("[volatility-api] response encoding error: %v\n", err)
+	}
+}
+
+func GetAllVolatilityPoints(db *gorm.DB) ([]map[string]any, error) {
+	sql := `
+WITH base_data AS
+(
+    SELECT
+        symbol,
+        period,
+        volatility,
+        start_time,
+        dt,
+        open,
+        high,
+        low,
+        close,
+        volume,
+        count,
+        round(volume / count, 6) AS vd,
+        round(
+            avg(volume / count) OVER (
+                PARTITION BY symbol, period, volatility
+                ORDER BY start_time ASC
+                ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+            ),
+            6
+        ) AS ma10
+    FROM agg_binance_futures_kline
+),
+final_data AS
+(
+    SELECT
+        *,
+        round(ifNull(divideOrNull(vd, ma10), 0), 6) AS ratio
+    FROM base_data
+)
+SELECT *
+FROM final_data
+ORDER BY
+    symbol ASC,
+    period ASC,
+    volatility ASC,
+    start_time ASC
+SETTINGS
+    compile_expressions = 0,
+    compile_sort_description = 0;
+`
+	var points []map[string]any
+	if err := db.Raw(sql).Scan(&points).Error; err != nil {
 		return nil, err
 	}
 	return points, nil
