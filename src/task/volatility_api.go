@@ -306,7 +306,7 @@ func (h *allVolatilityPointsHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	points, err := GetAllVolatilityPoints(db)
+	points, err := h.GetAllVolatilityPoints()
 	if err != nil {
 		fmt.Printf("[volatility-api] GetAllVolatilityPoints query error: %v\n", err)
 		writeAPIError(w, -1001, "Internal error: failed to query all volatility points.")
@@ -319,7 +319,7 @@ func (h *allVolatilityPointsHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	}
 }
 
-func GetAllVolatilityPoints(db *gorm.DB) ([]map[string]any, error) {
+func (h *allVolatilityPointsHandler) GetAllVolatilityPoints() ([]map[string]any, error) {
 	sql := `
 WITH base_data AS
 (
@@ -365,7 +365,7 @@ SETTINGS
     compile_sort_description = 0;
 `
 	var points []map[string]any
-	if err := db.Raw(sql).Scan(&points).Error; err != nil {
+	if err := h.storage.GetDB().Raw(sql).Scan(&points).Error; err != nil {
 		return nil, err
 	}
 	return points, nil
