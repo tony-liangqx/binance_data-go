@@ -33,7 +33,7 @@ type Subscriber struct {
 	syncing bool
 
 	// aggregator is the volatility aggregator that processes incoming kline points
-	aggregators []*model.VolatilityDataWriter
+	aggregators []*model.GridVolatilityDataWriter
 
 	// buffer holds kline points that arrived via websocket while a
 	// HistorySyncer was backfilling. They are drained in SyncDone,
@@ -50,10 +50,11 @@ type Subscriber struct {
 
 // NewSubscriber creates a new Subscriber instance
 func NewSubscriber(storage model.Storage, symbol string, period string) *Subscriber {
-	aggregators := []*model.VolatilityDataWriter{
-		model.NewVolatilityDataWriter(symbol, 0.5, storage),
-		model.NewVolatilityDataWriter(symbol, 1, storage),
-		model.NewVolatilityDataWriter(symbol, 2, storage),
+	aggregators := []*model.GridVolatilityDataWriter{
+		model.NewGridVolatilityDataWriter(1, storage),
+		// model.NewVolatilityDataWriter(symbol, 0.5, storage),
+		// model.NewVolatilityDataWriter(symbol, 1, storage),
+		// model.NewVolatilityDataWriter(symbol, 2, storage),
 	}
 	return &Subscriber{
 		storage:     storage,
