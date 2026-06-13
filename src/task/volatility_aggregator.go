@@ -86,7 +86,6 @@ func (a *volatilityAggregator) Add(point *model.AggregatedFutureKline) *model.Ag
 	copyed := *point
 	// 对外改变数据字段
 	copyed.Period = ""
-	copyed.Volatility = a.volatility
 	// 指标在 PubSubService.updateLatestPoint缓存时计算
 	return &copyed
 }

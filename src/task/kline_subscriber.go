@@ -51,7 +51,7 @@ type Subscriber struct {
 // NewSubscriber creates a new Subscriber instance
 func NewSubscriber(storage model.Storage, symbol string, period string) *Subscriber {
 	aggregators := []*model.GridVolatilityDataWriter{
-		model.NewGridVolatilityDataWriter(1, storage),
+		model.NewGridVolatilityDataWriter(storage),
 		// model.NewVolatilityDataWriter(symbol, 0.5, storage),
 		// model.NewVolatilityDataWriter(symbol, 1, storage),
 		// model.NewVolatilityDataWriter(symbol, 2, storage),
@@ -156,7 +156,7 @@ func (s *Subscriber) alignWithKline() {
 		vol := aggregator.Volatility()
 		var last model.AggBinanceFutureKline
 		err := s.storage.GetDB().Raw(
-			"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
+			"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? ORDER BY start_time DESC LIMIT 1",
 			s.symbol, s.period, vol,
 		).Scan(&last).Error
 		if err != nil {
@@ -171,7 +171,7 @@ func (s *Subscriber) alignWithKline() {
 			// 1. 缺失的volatility从BinanceFutureKline表中最小的start_time开始
 			var minStartTime int64
 			err := s.storage.GetDB().Raw(
-				"SELECT MIN(start_time) FROM binance_futures_kline WHERE symbol = ? AND period = ?",
+				"SELECT MIN(start_time) FROM binance_futures_kline WHERE symbol = ?",
 				s.symbol, s.period,
 			).Scan(&minStartTime).Error
 			if err != nil {

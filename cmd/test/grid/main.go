@@ -73,6 +73,10 @@ func calcGrid(price float64) float64 {
 // Feed 核心逻辑：每来一根K线，调用一次该函数。
 // 如果该K线导致了网格破位切换，则会返回一个聚合完毕的 *GridKline，否则返回 nil。
 func (a *GridAggregator) Feed(k Kline) *GridKline {
+	if k.Symbol != a.symbol {
+		return nil
+	}
+
 	openGrid := calcGrid(k.Open)
 	closeGrid := calcGrid(k.Close)
 
@@ -251,7 +255,7 @@ func main() {
 	// }
 
 	// 从 CSV 文件加载 Kline 数据
-	klines, err := loadKlinesFromCSV("/tmp/btc.csv")
+	klines, err := loadKlinesFromCSV("/tmp/dump.csv")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -260,7 +264,7 @@ func main() {
 	// 为 BTCUSDT 初始化一个状态机
 	aggregator := NewGridAggregator("BTCUSDT")
 
-	fmt.Println("--- 开始实时喂数据 ---")
+	fmt.Printf("--- 开始实时喂数据 ---%d\n", len(klines))
 	for _, kline := range klines {
 		// 喂入单根 K 线
 		output := aggregator.Feed(kline)

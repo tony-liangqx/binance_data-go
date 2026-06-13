@@ -2,7 +2,6 @@ package model
 
 import (
 	"math"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -27,7 +26,7 @@ type GridVolatilityDataWriter struct {
 	storage Storage
 }
 
-func NewGridVolatilityDataWriter(volatility float64, storage Storage) *GridVolatilityDataWriter {
+func NewGridVolatilityDataWriter(storage Storage) *GridVolatilityDataWriter {
 	// vName := strconv.Itoa(int(volatility * 10))
 	// 从AggKline记录查询到最新kline数据
 	// 搜索最新一条AggBinanceFutureKline数据的close_time，获得第一条start_time大于close_time的BinanceFutureKline类型数据
@@ -39,7 +38,6 @@ func NewGridVolatilityDataWriter(volatility float64, storage Storage) *GridVolat
 	vd := &GridVolatilityDataWriter{
 		gridAggregator: make(map[string]*GridAggregator),
 		period:         "1m",
-		volatility:     volatility,
 		kind:           "volatility",
 		log_base:       LogBase,
 		storage:        storage,
@@ -58,7 +56,7 @@ func NewGridVolatilityDataWriter(volatility float64, storage Storage) *GridVolat
 func (a *GridVolatilityDataWriter) Symbol() string { return "grid" }
 
 // Period returns the aggregation period.
-func (a *GridVolatilityDataWriter) Volatility() string { return strconv.Itoa(int(a.volatility * 10)) }
+func (a *GridVolatilityDataWriter) Volatility() string { return "" }
 
 func (a *GridVolatilityDataWriter) LoadData(point *BinanceFutureKline) {
 
@@ -84,6 +82,8 @@ func (a *GridVolatilityDataWriter) Add(point *FutureKlinePoint) (*AggregatedFutu
 		}
 		retVal := &AggregatedFutureKline{
 			Symbol:                   agg.Symbol,
+			Period:                   agg.Period,
+			Kind:                     a.kind,
 			StartTime:                agg.StartTime,
 			CloseTime:                agg.CloseTime,
 			Open:                     agg.Open,
@@ -162,6 +162,7 @@ func (a *GridAggregator) Feed(point *FutureKlinePoint) *AggBinanceFutureKline {
 		// 注意：Python 中移位操作 `shift(1).bfill()` 导致初始 grid_id 等于第一根的 actualID
 		a.currentGrid = &AggBinanceFutureKline{
 			Symbol:                   point.Symbol,
+			Period:                   point.Period,
 			StartTime:                point.StartTime,
 			CloseTime:                point.CloseTime,
 			Open:                     point.Open,
@@ -202,6 +203,7 @@ func (a *GridAggregator) Feed(point *FutureKlinePoint) *AggBinanceFutureKline {
 		// 用当前这根 K 线创建全新的网格组，其 GridID 继承上一次的 actualID
 		a.currentGrid = &AggBinanceFutureKline{
 			Symbol:                   point.Symbol,
+			Period:                   point.Period,
 			StartTime:                point.StartTime,
 			CloseTime:                point.CloseTime,
 			Open:                     point.Open,

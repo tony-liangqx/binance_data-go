@@ -131,24 +131,14 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	symbols := make([]string, 0, len(streamNames))
 	for _, streamName := range streamNames {
 		// Parse symbol and period, and create aggregator for periods
-		symbol, kind, period, ok := parseStreamName(streamName)
+		symbol, kind, _, ok := parseStreamName(streamName)
 		if !ok {
 			log.Printf("debug: parseStreamName error: %s\n", streamName)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		symbols = append(symbols, symbol)
-		switch kind {
-		case "volatility":
-			switch period {
-			case "10", "20", "30", "5":
-				continue
-			default:
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-		case "kline":
-		default:
+		if kind != "volatility" && kind != "kline" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -171,17 +161,16 @@ func (s *WebSocketService) handleStream(w http.ResponseWriter, r *http.Request) 
 	// Subscribe to topics for each stream and register the client directly
 	// with PubSubService via Go channels (no MQTT middleware).
 	for _, streamName := range streamNames {
-		topic := streamNameToTopic(streamName)
-		s.pubSrv.SubscribeLocal(topic, client.send)
-
 		// Parse symbol and period, and create aggregator for periods
-		// 如果是volatility类型，period为5、10、20等
-		symbol, kind, period, ok := parseStreamName(streamName)
+		symbol, kind, _, ok := parseStreamName(streamName)
 		if !ok {
 			log.Printf("debug: parseStreamName error: %s\n", streamName)
 			continue
 		}
-		point := s.pubSrv.Subscribe(symbol, kind, period)
+		topic := streamNameToTopic(streamName)
+		s.pubSrv.SubscribeLocal(topic, client.send)
+
+		point := s.pubSrv.Subscribe(symbol, kind)
 
 		// 发送缓存message
 		buf, err := json.Marshal(point)

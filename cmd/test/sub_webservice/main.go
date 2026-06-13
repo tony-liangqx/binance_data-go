@@ -13,30 +13,30 @@ import (
 
 var ALL_SYMBOLS = []string{
 	"ETHUSDT",
-	"SOLUSDT",
-	"TRXUSDT",
-	"DOGEUSDT",
-	"XRPUSDT",
-	"LTCUSDT",
-	"SUIUSDT",
-	"ZKUSDT",
-	"AAVEUSDT",
-	"AVAXUSDT",
-	"ZECUSDT",
-	"1000PEPEUSDT",
-	"OPUSDT",
-	"ADAUSDT",
-	"LINKUSDT",
-	"UNIUSDT",
-	"TONUSDT",
+	// "SOLUSDT",
+	// "TRXUSDT",
+	// "DOGEUSDT",
+	// "XRPUSDT",
+	// "LTCUSDT",
+	// "SUIUSDT",
+	// "ZKUSDT",
+	// "AAVEUSDT",
+	// "AVAXUSDT",
+	// "ZECUSDT",
+	// "1000PEPEUSDT",
+	// "OPUSDT",
+	// "ADAUSDT",
+	// "LINKUSDT",
+	// "UNIUSDT",
+	// "TONUSDT",
 }
 
 func main() {
 	server := flag.String("server", "ws://localhost:8080", "WebSocket server URL")
-	ratio := flag.String("ratio", "10", "volatility level")
+	ratio := flag.String("period", "1m", "volatility level")
 	flag.Parse()
-	if *ratio != "5" && *ratio != "10" && *ratio != "20" {
-		log.Println("invalid ratio, must be 5, 10, or 20")
+	if *ratio != "1m" {
+		log.Println("invalid period, must be 1m")
 		os.Exit(1)
 	}
 	suffix := fmt.Sprintf("@volatility_%s", *ratio)

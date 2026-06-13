@@ -140,7 +140,8 @@ func (s *PubSubService) UnsubscribeLocal(topic string, ch chan []byte) {
 // It maintains a reference counter for each (symbol, period). The aggregator
 // is only created on the first subscription and removed when the last
 // subscriber calls Unsubscribe.
-func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedFutureKline {
+func (s *PubSubService) Subscribe(symbol, kind string) model.AggregatedFutureKline {
+	period := "1m"
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 
 	s.mu.Lock()
@@ -157,7 +158,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedF
 			point = s.GetLatestPoint(symbol, kind, period)
 			point.Period = ""
 		default:
-			point = s.GetLatestPoint(symbol, kind, "1m")
+			point = s.GetLatestPoint(symbol, kind, period)
 			point.Period = period
 			aggregator.SetFirstPoint(&point)
 		}
@@ -172,7 +173,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedF
 		point.Period = ""
 	default:
 		aggregator = newSymbolAggregator(symbol, period)
-		point = s.GetLatestPoint(symbol, kind, "1m")
+		point = s.GetLatestPoint(symbol, kind, period)
 		point.Period = period
 		aggregator.SetFirstPoint(&point)
 	}
@@ -273,10 +274,10 @@ func (s *PubSubService) loadHistoricalData() {
 	err = db.Raw(`
 		SELECT a.*, 'kline' AS kind FROM agg_binance_futures_kline a
 		INNER JOIN (
-			SELECT symbol, volatility, MAX(start_time) AS max_start_time
+			SELECT symbol, MAX(start_time) AS max_start_time
 			FROM agg_binance_futures_kline
-			GROUP BY symbol, volatility
-		) b ON a.symbol = b.symbol AND a.volatility = b.volatility AND a.start_time = b.max_start_time
+			GROUP BY symbol
+		) b ON a.symbol = b.symbol AND a.start_time = b.max_start_time
 	`).Scan(&aggKlines).Error
 	if err != nil {
 		log.Printf("[pubsub] failed to load latest AggBinanceFutureKline: %v\n", err)
@@ -285,7 +286,7 @@ func (s *PubSubService) loadHistoricalData() {
 			point := &model.AggregatedFutureKline{
 				Symbol:                   k.Symbol,
 				Period:                   k.Period,
-				Volatility:               k.Volatility,
+				Kind:                     "volatility",
 				StartTime:                k.StartTime,
 				Open:                     k.Open,
 				High:                     k.High,
@@ -301,7 +302,7 @@ func (s *PubSubService) loadHistoricalData() {
 				History:                  make([]float64, 0),
 			}
 			// 计算指标
-			window, err := QueryVolatilityWindow(db, k.Symbol, k.Volatility)
+			window, err := QueryVolatilityWindow(db, k.Symbol)
 
 			if err != nil {
 				log.Printf("[pubsub] failed to query volatility: %v\n", err)
@@ -322,7 +323,7 @@ func (s *PubSubService) loadHistoricalData() {
 			point.Ratio = point.Vd / ma10
 
 			s.updateLatestPoint(point)
-			log.Printf("[pubsub] loaded latest agg kline: %s/%s volatility=%s start=%d, vd=%f, ma10=%f, ratio=%f\n", k.Symbol, k.Period, k.Volatility, k.StartTime, point.Vd, point.Ma10, point.Ratio)
+			log.Printf("[pubsub] loaded latest agg kline: %s/%s start=%d, vd=%f, ma10=%f, ratio=%f\n", k.Symbol, k.Period, k.StartTime, point.Vd, point.Ma10, point.Ratio)
 		}
 	}
 }
@@ -347,28 +348,28 @@ func (s *PubSubService) Start() {
 // start connects to MQTT and enters the main event loop.
 func (s *PubSubService) start() {
 	// Connect to MQTT broker
-	client := mqtt.NewClient(s.mqttOpts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		log.Printf("[pubsub] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
-		panic(token.Error())
-	} else {
-		s.mqttClient = client
-		log.Printf("[pubsub] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.clientID)
-		defer client.Disconnect(250)
-	}
+	// client := mqtt.NewClient(s.mqttOpts)
+	// if token := client.Connect(); token.Wait() && token.Error() != nil {
+	// 	log.Printf("[pubsub] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
+	// 	panic(token.Error())
+	// } else {
+	// 	s.mqttClient = client
+	// 	log.Printf("[pubsub] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.clientID)
+	// 	defer client.Disconnect(250)
+	// }
 
 	log.Println("[pubsub] started, waiting for kline points...")
 
 	for point := range s.PointChan {
-		if s.mqttClient == nil || !s.mqttClient.IsConnected() {
-			client := mqtt.NewClient(s.mqttOpts)
-			if token := client.Connect(); token.Wait() && token.Error() != nil {
-				log.Printf("[pubsub] MQTT reconnect failed: %v\n", token.Error())
-				continue
-			}
-			s.mqttClient = client
-			log.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
-		}
+		// if s.mqttClient == nil || !s.mqttClient.IsConnected() {
+		// 	client := mqtt.NewClient(s.mqttOpts)
+		// 	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		// 		log.Printf("[pubsub] MQTT reconnect failed: %v\n", token.Error())
+		// 		continue
+		// 	}
+		// 	s.mqttClient = client
+		// 	log.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
+		// }
 
 		// Update the cache
 		s.updateLatestPoint(point)
@@ -384,17 +385,14 @@ func (s *PubSubService) start() {
 // updateLatestPoint caches the latest 1m kline point per symbol.
 func (s *PubSubService) updateLatestPoint(point *model.AggregatedFutureKline) {
 	symbol := point.Symbol
-	var period string
 	var kind string
-	if point.Volatility != "" {
+	if point.Kind == "volatility" {
 		kind = "volatility"
-		period = point.Volatility
 	} else {
 		kind = "kline"
-		period = point.Period
 	}
 
-	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
+	key := fmt.Sprintf("%s_%s_%s", symbol, kind, point.Period)
 
 	s.latestMu.Lock()
 	defer s.latestMu.Unlock()
@@ -479,11 +477,11 @@ func (s *PubSubService) addPoint(point *model.AggregatedFutureKline) []*model.Ag
 // publishAggregated publishes the aggregated kline to the MQTT broker.
 func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 	var topic string
-	switch agg.Volatility {
+	switch agg.Kind {
 	case "":
 		topic = fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, agg.Symbol, agg.Period)
 	default:
-		topic = fmt.Sprintf("%s/%s/%s", mqttVolatilityTopicPrefix, agg.Symbol, agg.Volatility)
+		topic = fmt.Sprintf("%s/%s/%s", mqttVolatilityTopicPrefix, agg.Symbol, agg.Period)
 	}
 
 	payload, err := json.Marshal(agg)
@@ -494,6 +492,7 @@ func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 
 	// Dispatch to local (in-process) subscribers first
 	s.localMu.RLock()
+	fmt.Printf("publish Aggregated point to %s: %s %s start=%d\n", topic, agg.Symbol, agg.Period, agg.StartTime)
 	if subscribers, ok := s.localSubscribers[topic]; ok {
 		for ch := range subscribers {
 			select {
@@ -505,15 +504,15 @@ func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 	}
 	s.localMu.RUnlock()
 
-	// Publish to MQTT for external consumers
-	token := s.mqttClient.Publish(topic, 1, false, payload)
-	token.Wait()
-	if token.Error() != nil {
-		log.Printf("[pubsub] failed to publish aggregated kline: %v\n", token.Error())
-	} else {
-		log.Printf("[pubsub] published aggregated kline: %s %s start=%d\n",
-			agg.Symbol, agg.Period, agg.StartTime)
-	}
+	// // Publish to MQTT for external consumers
+	// token := s.mqttClient.Publish(topic, 1, false, payload)
+	// token.Wait()
+	// if token.Error() != nil {
+	// 	log.Printf("[pubsub] failed to publish aggregated kline: %v\n", token.Error())
+	// } else {
+	// 	log.Printf("[pubsub] published aggregated kline: %s %s start=%d\n",
+	// 		agg.Symbol, agg.Period, agg.StartTime)
+	// }
 }
 
 // compile-time interface checks

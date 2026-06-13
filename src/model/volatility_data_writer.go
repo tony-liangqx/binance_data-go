@@ -210,15 +210,14 @@ func (a *VolatilityDataWriter) finalize(point *AggBinanceFutureKline) (*Aggregat
 
 	// 返回的数据
 	needPub := &AggregatedFutureKline{
-		Symbol:     point.Symbol,
-		Period:     point.Period,
-		Kind:       a.kind,
-		Volatility: a.Volatility(),
-		StartTime:  point.StartTime,
-		Open:       point.Open,
-		High:       point.High,
-		Low:        point.Low,
-		Close:      point.Close,
+		Symbol:    point.Symbol,
+		Period:    point.Period,
+		Kind:      a.kind,
+		StartTime: point.StartTime,
+		Open:      point.Open,
+		High:      point.High,
+		Low:       point.Low,
+		Close:     point.Close,
 
 		// 计算聚合值
 		Volume:                   point.Volume,

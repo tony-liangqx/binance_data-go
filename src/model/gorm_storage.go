@@ -69,19 +69,18 @@ func (s *GormStorage) CommitAggKline(kline *AggBinanceFutureKline) error {
 	// 2. 使用命名参数 @xxx，彻底告别位置错误
 	return s.db.Exec(`
 		INSERT INTO agg_binance_futures_kline (
-			symbol, period, volatility, start_time, dt,
+			symbol, period, start_time, dt,
 			open, high, low, close,
 			volume, quote_asset_volume, trades, close_time,
 			taker_buy_base_asset_volume, taker_buy_quote_asset_volume, count
 		) VALUES (
-			@symbol, @period, @volatility, @start_time, @dt,
+			@symbol, @period, @start_time, @dt,
 			@open, @high, @low, @close,
 			@volume, @quote_asset_volume, @trades, @close_time,
 			@taker_buy_base, @taker_buy_quote, @count
 		)`,
 		sql.Named("symbol", kline.Symbol),
 		sql.Named("period", kline.Period),
-		sql.Named("volatility", kline.Volatility),
 		sql.Named("start_time", kline.StartTime),
 		sql.Named("dt", kline.DateTime),
 		sql.Named("open", kline.Open),
@@ -119,7 +118,7 @@ func (s *GormStorage) GetLastVolatilityPoint(symbol string, volatility string) (
 	var agg_point AggBinanceFutureKline
 	// 执行查询
 	result := s.db.Raw(
-		"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = '1m' AND volatility = ? ORDER BY start_time DESC LIMIT 1",
+		"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = '1m' ORDER BY start_time DESC LIMIT 1",
 		symbol, volatility,
 	).Scan(&agg_point)
 

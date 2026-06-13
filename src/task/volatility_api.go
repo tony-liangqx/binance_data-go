@@ -277,10 +277,9 @@ SETTINGS
 	return klines, nil
 }
 
-func QueryVolatilityWindow(db *gorm.DB, symbol, interval string) ([]model.AggBinanceFutureKline, error) {
+func QueryVolatilityWindow(db *gorm.DB, symbol string) ([]model.AggBinanceFutureKline, error) {
 	query := db.Table("agg_binance_futures_kline").
-		Where("symbol = ?", symbol).
-		Where("volatility = ?", interval).Order("start_time DESC").Limit(10)
+		Where("symbol = ?", symbol).Order("start_time DESC").Limit(10)
 	var points []model.AggBinanceFutureKline
 	if err := query.Find(&points).Error; err != nil {
 		return nil, err
