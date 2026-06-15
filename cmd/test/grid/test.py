@@ -93,7 +93,8 @@ df["grid_id_actual"] = df["raw_grid"].ffill().bfill()
 df["grid_id"] = df["grid_id_actual"].shift(1).bfill().astype(int)
 
 # 如果这个品种的历史走势犹如死水，没有任何一次穿越，直接跳过
-if df["grid_id"].isna().all():
+result = df["grid_id"].isna().all()
+if result is False:
     print("empty")
     exit()
 
@@ -122,7 +123,7 @@ agg_funcs = {
 gdf = df.groupby("group_id").agg(agg_funcs)
 
 # 补充 count 字段 (即每组包含了多少根 1 分钟 K 线)
-gdf["count"] = df.groupby("group_id").size()
+gdf["count"] = df.groupby("group_id").size()  # type: ignore
 
 # 类型还原 (防止 numpy 浮点运算影响整型字段)
 gdf = gdf.astype(
