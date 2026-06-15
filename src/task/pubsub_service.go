@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"binance.data.sync/src/model"
-
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 const (
@@ -34,7 +32,6 @@ const (
 type PubSubService struct {
 	broker   string
 	clientID string
-	mqttOpts *mqtt.ClientOptions
 
 	// PointChan receives raw 1m kline points from Subscribers
 	PointChan chan *model.AggregatedFutureKline
@@ -47,9 +44,6 @@ type PubSubService struct {
 	aggregators  map[string]ISymbolAggregator
 	subRefCounts map[string]int // reference count per "symbol:period"
 	mu           sync.RWMutex
-
-	// mqttClient is the MQTT client for publishing
-	mqttClient mqtt.Client
 
 	// latestPoints caches the latest 1m point per symbol (key = symbol)
 	latestPoints map[string]*model.AggregatedFutureKline
@@ -76,19 +70,9 @@ func NewPubSubService(eventCount int) *PubSubService {
 func NewPubSubServiceWithBroker(broker string, eventCount int) *PubSubService {
 	clientID := fmt.Sprintf("binance_pubsub_%d", time.Now().UnixNano())
 
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(broker)
-	opts.SetClientID(clientID)
-	opts.SetCleanSession(true)
-	opts.SetAutoReconnect(true)
-	opts.SetConnectTimeout(10 * time.Second)
-	opts.SetKeepAlive(30 * time.Second)
-	opts.SetOrderMatters(false)
-
 	return &PubSubService{
 		broker:            broker,
 		clientID:          clientID,
-		mqttOpts:          opts,
 		PointChan:         make(chan *model.AggregatedFutureKline, 1024),
 		aggregators:       make(map[string]ISymbolAggregator),
 		subRefCounts:      make(map[string]int),
@@ -503,16 +487,6 @@ func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 		}
 	}
 	s.localMu.RUnlock()
-
-	// // Publish to MQTT for external consumers
-	// token := s.mqttClient.Publish(topic, 1, false, payload)
-	// token.Wait()
-	// if token.Error() != nil {
-	// 	log.Printf("[pubsub] failed to publish aggregated kline: %v\n", token.Error())
-	// } else {
-	// 	log.Printf("[pubsub] published aggregated kline: %s %s start=%d\n",
-	// 		agg.Symbol, agg.Period, agg.StartTime)
-	// }
 }
 
 // compile-time interface checks

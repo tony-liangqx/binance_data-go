@@ -4,16 +4,16 @@
 ```
 Binance WS → Subscriber → DB（Symbol的`1m`数据）
                        ↓
-                       → PubSubService → aggregate points → MQTT (mosquitto)
-                                                                   ↓
-                                                          WebSocketService (MQTT sub)
-                                                                   ↓
-                                                               WS Clients
+                       → PubSubService → aggregate points →  go channel
+                                                                 ↓
+                                                        WebSocketService
+                                                                 ↓
+                                                            WS Clients
 ```
 `PubSubService`为数据管理中枢。
 
 1. 内存缓存的数据用于实时“聚合”和计算“指标”。
-2. MQTT用于多路订阅通道数据复制。
+2. 通过go的channel多路订阅通道数据复制。
 
 # 数据同步流程图
 `Subscriber`负责源数据同步
