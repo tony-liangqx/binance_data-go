@@ -1,7 +1,7 @@
 package task
 
 import (
-	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -41,7 +41,7 @@ func (kc *KlineConnection) Register(sub *Subscriber) {
 	}
 	kc.mu.Unlock()
 
-	fmt.Printf("[shared_ws] subscriber registered: symbol=%s, total=%d\n",
+	log.Printf("[shared_ws] subscriber registered: symbol=%s, total=%d\n",
 		sub.symbol, len(kc.subscribers))
 }
 
@@ -66,7 +66,7 @@ func (kc *KlineConnection) dispatchEvent(event *futures.WsKlineEvent) {
 	kc.mu.RUnlock()
 
 	if !ok {
-		fmt.Printf("[shared_ws] no subscriber for symbol: %s\n", event.Symbol)
+		log.Printf("[shared_ws] no subscriber for symbol: %s\n", event.Symbol)
 		return
 	}
 	sub.handleKline(event)
@@ -74,7 +74,7 @@ func (kc *KlineConnection) dispatchEvent(event *futures.WsKlineEvent) {
 
 // handleError is the ErrHandler callback for WsCombinedKlineServe.
 func (kc *KlineConnection) handleError(err error) {
-	fmt.Printf("[shared_ws] websocket error: %v\n", err)
+	log.Printf("[shared_ws] websocket error: %v\n", err)
 }
 
 // run starts the shared WebSocket connection and manages reconnection.
@@ -85,24 +85,24 @@ func (kc *KlineConnection) run() {
 		symbols := kc.buildSymbolMap()
 
 		if len(symbols) == 0 {
-			fmt.Println("[shared_ws] no subscribers registered, waiting...")
+			log.Println("[shared_ws] no subscribers registered, waiting...")
 			time.Sleep(10 * time.Second)
 			continue
 		}
 
-		fmt.Printf("[shared_ws] connecting with %d symbols...\n", len(symbols))
+		log.Printf("[shared_ws] connecting with %d symbols...\n", len(symbols))
 
 		doneC, stopC, err := futures.WsCombinedKlineServe(symbols, kc.dispatchEvent, kc.handleError)
 		if err != nil {
-			fmt.Printf("[shared_ws] failed to start connection: %v\n", err)
+			log.Printf("[shared_ws] failed to start connection: %v\n", err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
 
-		fmt.Printf("[shared_ws] connection established with %d symbols\n", len(symbols))
+		log.Printf("[shared_ws] connection established with %d symbols\n", len(symbols))
 
 		<-doneC
-		fmt.Println("[shared_ws] connection closed, reconnecting in 10s...")
+		log.Println("[shared_ws] connection closed, reconnecting in 10s...")
 		_ = stopC
 		time.Sleep(10 * time.Second)
 	}

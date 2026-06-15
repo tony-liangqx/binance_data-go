@@ -3,6 +3,7 @@ package helper
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -38,7 +39,7 @@ type AppConfig struct {
 // Reads configuration from config.json.
 func GetStorage() model.Storage {
 	config := getAppConfig()
-	fmt.Printf("database driver: %s, host: %s:%d\n", config.Storage.Driver, config.Storage.Host, config.Storage.Port)
+	log.Printf("database driver: %s, host: %s:%d\n", config.Storage.Driver, config.Storage.Host, config.Storage.Port)
 
 	var dialector gorm.Dialector
 	switch config.Storage.Driver {
@@ -52,14 +53,14 @@ func GetStorage() model.Storage {
 		)
 		dialector = clickhouse.Open(dsn)
 	default:
-		panic(fmt.Sprintf("unsupported database driver: %s", config.Storage.Driver))
+		log.Fatalf("unsupported database driver: %s", config.Storage.Driver)
 	}
 
 	db, err := gorm.Open(dialector, &gorm.Config{
 		SkipDefaultTransaction: true,
 	})
 	if err != nil {
-		panic(fmt.Errorf("failed to connect database: %w", err))
+		log.Fatalf("failed to connect database: %v", err)
 	}
 
 	// Configure connection pool
@@ -68,7 +69,7 @@ func GetStorage() model.Storage {
 	// state after a failed query, causing "Unexpected packet Query received from client" errors.
 	sqlDB, err := db.DB()
 	if err != nil {
-		panic(fmt.Errorf("failed to get underlying DB: %w", err))
+		log.Fatalf("failed to get underlying DB: %v", err)
 	}
 	sqlDB.SetMaxIdleConns(0)
 	sqlDB.SetMaxOpenConns(100)
@@ -86,12 +87,12 @@ func GetSubscriptions() []Subscription {
 func getAppConfig() AppConfig {
 	data, err := os.ReadFile("config.json")
 	if err != nil {
-		panic(fmt.Errorf("failed to read config.json: %w", err))
+		log.Fatalf("failed to read config.json: %v", err)
 	}
 
 	var config AppConfig
 	if err := json.Unmarshal(data, &config); err != nil {
-		panic(fmt.Errorf("failed to parse config.json: %w", err))
+		log.Fatalf("failed to parse config.json: %v", err)
 	}
 
 	return config

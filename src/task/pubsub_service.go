@@ -3,13 +3,12 @@ package task
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"sync"
 	"time"
 
 	"binance.data.sync/src/model"
-
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 const (
@@ -33,7 +32,6 @@ const (
 type PubSubService struct {
 	broker   string
 	clientID string
-	mqttOpts *mqtt.ClientOptions
 
 	// PointChan receives raw 1m kline points from Subscribers
 	PointChan chan *model.AggregatedFutureKline
@@ -47,12 +45,15 @@ type PubSubService struct {
 	subRefCounts map[string]int // reference count per "symbol:period"
 	mu           sync.RWMutex
 
-	// mqttClient is the MQTT client for publishing
-	mqttClient mqtt.Client
-
 	// latestPoints caches the latest 1m point per symbol (key = symbol)
 	latestPoints map[string]*model.AggregatedFutureKline
 	latestMu     sync.RWMutex
+
+	// localSubscribers maps topic -> set of channels for in-process subscribers.
+	// This allows WebSocketService (and other in-process consumers) to receive
+	// aggregated data directly without going through MQTT.
+	localSubscribers map[string]map[chan []byte]struct{}
+	localMu          sync.RWMutex
 
 	// 通知事件通道
 	AlignEventC       chan bool
@@ -69,19 +70,9 @@ func NewPubSubService(eventCount int) *PubSubService {
 func NewPubSubServiceWithBroker(broker string, eventCount int) *PubSubService {
 	clientID := fmt.Sprintf("binance_pubsub_%d", time.Now().UnixNano())
 
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(broker)
-	opts.SetClientID(clientID)
-	opts.SetCleanSession(true)
-	opts.SetAutoReconnect(true)
-	opts.SetConnectTimeout(10 * time.Second)
-	opts.SetKeepAlive(30 * time.Second)
-	opts.SetOrderMatters(false)
-
 	return &PubSubService{
 		broker:            broker,
 		clientID:          clientID,
-		mqttOpts:          opts,
 		PointChan:         make(chan *model.AggregatedFutureKline, 1024),
 		aggregators:       make(map[string]ISymbolAggregator),
 		subRefCounts:      make(map[string]int),
@@ -89,12 +80,41 @@ func NewPubSubServiceWithBroker(broker string, eventCount int) *PubSubService {
 		AlignEventC:       make(chan bool),
 		LoadHistoryEventC: make(chan bool),
 		eventCount:        eventCount,
+		localSubscribers:  make(map[string]map[chan []byte]struct{}),
 	}
 }
 
 // SetStorage sets the storage backend for persisting aggregated kline data.
 func (s *PubSubService) SetStorage(storage model.Storage) {
 	s.storage = storage
+}
+
+// SubscribeLocal registers a channel to receive raw JSON payloads for a given topic.
+// This allows in-process consumers (e.g. WebSocketService) to receive aggregated
+// data directly without going through MQTT.
+func (s *PubSubService) SubscribeLocal(topic string, ch chan []byte) {
+	s.localMu.Lock()
+	defer s.localMu.Unlock()
+
+	if _, ok := s.localSubscribers[topic]; !ok {
+		s.localSubscribers[topic] = make(map[chan []byte]struct{})
+	}
+	s.localSubscribers[topic][ch] = struct{}{}
+	log.Printf("[pubsub] local subscriber added for topic %s\n", topic)
+}
+
+// UnsubscribeLocal removes a channel from the local subscribers for a given topic.
+func (s *PubSubService) UnsubscribeLocal(topic string, ch chan []byte) {
+	s.localMu.Lock()
+	defer s.localMu.Unlock()
+
+	if subscribers, ok := s.localSubscribers[topic]; ok {
+		delete(subscribers, ch)
+		if len(subscribers) == 0 {
+			delete(s.localSubscribers, topic)
+		}
+		log.Printf("[pubsub] local subscriber removed for topic %s\n", topic)
+	}
 }
 
 // Subscribe creates a symbolAggregator for the given (symbol, period) pair
@@ -104,7 +124,8 @@ func (s *PubSubService) SetStorage(storage model.Storage) {
 // It maintains a reference counter for each (symbol, period). The aggregator
 // is only created on the first subscription and removed when the last
 // subscriber calls Unsubscribe.
-func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedFutureKline {
+func (s *PubSubService) Subscribe(symbol, kind string) model.AggregatedFutureKline {
+	period := "1m"
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 
 	s.mu.Lock()
@@ -114,14 +135,14 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedF
 
 	if aggregator, ok := s.aggregators[key]; ok {
 		s.subRefCounts[key]++
-		fmt.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
+		log.Printf("[pubsub] subscribe ref++ for %s/%s (refCount=%d, indicators=%d)\n",
 			symbol, period, s.subRefCounts[key], len(aggregator.Indicators()))
 		switch kind {
 		case "volatility":
 			point = s.GetLatestPoint(symbol, kind, period)
 			point.Period = ""
 		default:
-			point = s.GetLatestPoint(symbol, kind, "1m")
+			point = s.GetLatestPoint(symbol, kind, period)
 			point.Period = period
 			aggregator.SetFirstPoint(&point)
 		}
@@ -136,7 +157,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedF
 		point.Period = ""
 	default:
 		aggregator = newSymbolAggregator(symbol, period)
-		point = s.GetLatestPoint(symbol, kind, "1m")
+		point = s.GetLatestPoint(symbol, kind, period)
 		point.Period = period
 		aggregator.SetFirstPoint(&point)
 	}
@@ -146,7 +167,7 @@ func (s *PubSubService) Subscribe(symbol, kind, period string) model.AggregatedF
 	s.aggregators[key] = aggregator
 	s.subRefCounts[key] = 1
 
-	fmt.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
+	log.Printf("[pubsub] created aggregator for %s/%s (points_per_agg=%d, indicators=%d, refCount=1)\n",
 		symbol, period, aggregator.PointsPerAgg(), len(aggregator.Indicators()))
 	return point
 }
@@ -162,14 +183,14 @@ func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
 
 	count, ok := s.subRefCounts[key]
 	if !ok {
-		fmt.Printf("[pubsub] unsubscribe ignored for %s/%s: no subscription record\n", symbol, period)
+		log.Printf("[pubsub] unsubscribe ignored for %s/%s: no subscription record\n", symbol, period)
 		return
 	}
 
 	count--
 	if count > 0 {
 		s.subRefCounts[key] = count
-		fmt.Printf("[pubsub] unsubscribe ref-- for %s/%s (refCount=%d)\n",
+		log.Printf("[pubsub] unsubscribe ref-- for %s/%s (refCount=%d)\n",
 			symbol, period, count)
 		return
 	}
@@ -177,7 +198,7 @@ func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
 	// Last subscriber: clean up the aggregator and its indicators
 	delete(s.aggregators, key)
 	delete(s.subRefCounts, key)
-	fmt.Printf("[pubsub] removed aggregator for %s/%s (no more subscribers)\n",
+	log.Printf("[pubsub] removed aggregator for %s/%s (no more subscribers)\n",
 		symbol, period)
 }
 
@@ -188,13 +209,13 @@ func (s *PubSubService) Unsubscribe(symbol, kind, period string) {
 // 4. AggBinanceSpotKline数据记录通过GROUP BY (symbol, volatility)获得symbol和volatility的分组，最新的一条记录
 func (s *PubSubService) loadHistoricalData() {
 	if s.storage == nil {
-		fmt.Println("[pubsub] no storage set, skipping historical data load")
+		log.Println("[pubsub] no storage set, skipping historical data load")
 		return
 	}
 
 	db := s.storage.GetDB()
 	if db == nil {
-		fmt.Println("[pubsub] no db connection, skipping historical data load")
+		log.Println("[pubsub] no db connection, skipping historical data load")
 		return
 	}
 
@@ -209,7 +230,7 @@ func (s *PubSubService) loadHistoricalData() {
 		) b ON a.symbol = b.symbol AND a.period = b.period AND a.start_time = b.max_start_time
 	`).Scan(&klines).Error
 	if err != nil {
-		fmt.Printf("[pubsub] failed to load latest BinanceFutureKline: %v\n", err)
+		log.Printf("[pubsub] failed to load latest BinanceFutureKline: %v\n", err)
 	} else {
 		for _, k := range klines {
 			point := &model.AggregatedFutureKline{
@@ -228,7 +249,7 @@ func (s *PubSubService) loadHistoricalData() {
 				TakerBuyQuoteAssetVolume: k.TakerBuyQuoteAssetVolume,
 			}
 			s.updateLatestPoint(point)
-			fmt.Printf("[pubsub] loaded latest kline: %s/%s start=%d\n", k.Symbol, k.Period, k.StartTime)
+			log.Printf("[pubsub] loaded latest kline: %s/%s start=%d\n", k.Symbol, k.Period, k.StartTime)
 		}
 	}
 
@@ -237,19 +258,19 @@ func (s *PubSubService) loadHistoricalData() {
 	err = db.Raw(`
 		SELECT a.*, 'kline' AS kind FROM agg_binance_futures_kline a
 		INNER JOIN (
-			SELECT symbol, volatility, MAX(start_time) AS max_start_time
+			SELECT symbol, MAX(start_time) AS max_start_time
 			FROM agg_binance_futures_kline
-			GROUP BY symbol, volatility
-		) b ON a.symbol = b.symbol AND a.volatility = b.volatility AND a.start_time = b.max_start_time
+			GROUP BY symbol
+		) b ON a.symbol = b.symbol AND a.start_time = b.max_start_time
 	`).Scan(&aggKlines).Error
 	if err != nil {
-		fmt.Printf("[pubsub] failed to load latest AggBinanceFutureKline: %v\n", err)
+		log.Printf("[pubsub] failed to load latest AggBinanceFutureKline: %v\n", err)
 	} else {
 		for _, k := range aggKlines {
 			point := &model.AggregatedFutureKline{
 				Symbol:                   k.Symbol,
 				Period:                   k.Period,
-				Volatility:               k.Volatility,
+				Kind:                     "volatility",
 				StartTime:                k.StartTime,
 				Open:                     k.Open,
 				High:                     k.High,
@@ -265,10 +286,10 @@ func (s *PubSubService) loadHistoricalData() {
 				History:                  make([]float64, 0),
 			}
 			// 计算指标
-			window, err := QueryVolatilityWindow(db, k.Symbol, k.Volatility)
+			window, err := QueryVolatilityWindow(db, k.Symbol)
 
 			if err != nil {
-				fmt.Printf("[pubsub] failed to query volatility: %v\n", err)
+				log.Printf("[pubsub] failed to query volatility: %v\n", err)
 			}
 			wlen := len(window)
 			if wlen == 0 {
@@ -286,7 +307,7 @@ func (s *PubSubService) loadHistoricalData() {
 			point.Ratio = point.Vd / ma10
 
 			s.updateLatestPoint(point)
-			fmt.Printf("[pubsub] loaded latest agg kline: %s/%s volatility=%s start=%d, vd=%f, ma10=%f, ratio=%f\n", k.Symbol, k.Period, k.Volatility, k.StartTime, point.Vd, point.Ma10, point.Ratio)
+			log.Printf("[pubsub] loaded latest agg kline: %s/%s start=%d, vd=%f, ma10=%f, ratio=%f\n", k.Symbol, k.Period, k.StartTime, point.Vd, point.Ma10, point.Ratio)
 		}
 	}
 }
@@ -301,7 +322,7 @@ func (s *PubSubService) Start() {
 			break // 退出 for 循环
 		}
 	}
-	fmt.Printf("[pubsub] aligned %d events\n", count)
+	log.Printf("[pubsub] aligned %d events\n", count)
 	s.loadHistoricalData()
 	close(s.AlignEventC)
 	close(s.LoadHistoryEventC)
@@ -311,28 +332,28 @@ func (s *PubSubService) Start() {
 // start connects to MQTT and enters the main event loop.
 func (s *PubSubService) start() {
 	// Connect to MQTT broker
-	client := mqtt.NewClient(s.mqttOpts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		fmt.Printf("[pubsub] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
-		panic(token.Error())
-	} else {
-		s.mqttClient = client
-		fmt.Printf("[pubsub] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.clientID)
-		defer client.Disconnect(250)
-	}
+	// client := mqtt.NewClient(s.mqttOpts)
+	// if token := client.Connect(); token.Wait() && token.Error() != nil {
+	// 	log.Printf("[pubsub] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
+	// 	panic(token.Error())
+	// } else {
+	// 	s.mqttClient = client
+	// 	log.Printf("[pubsub] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.clientID)
+	// 	defer client.Disconnect(250)
+	// }
 
-	fmt.Println("[pubsub] started, waiting for kline points...")
+	log.Println("[pubsub] started, waiting for kline points...")
 
 	for point := range s.PointChan {
-		if s.mqttClient == nil || !s.mqttClient.IsConnected() {
-			client := mqtt.NewClient(s.mqttOpts)
-			if token := client.Connect(); token.Wait() && token.Error() != nil {
-				fmt.Printf("[pubsub] MQTT reconnect failed: %v\n", token.Error())
-				continue
-			}
-			s.mqttClient = client
-			fmt.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
-		}
+		// if s.mqttClient == nil || !s.mqttClient.IsConnected() {
+		// 	client := mqtt.NewClient(s.mqttOpts)
+		// 	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		// 		log.Printf("[pubsub] MQTT reconnect failed: %v\n", token.Error())
+		// 		continue
+		// 	}
+		// 	s.mqttClient = client
+		// 	log.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
+		// }
 
 		// Update the cache
 		s.updateLatestPoint(point)
@@ -348,17 +369,14 @@ func (s *PubSubService) start() {
 // updateLatestPoint caches the latest 1m kline point per symbol.
 func (s *PubSubService) updateLatestPoint(point *model.AggregatedFutureKline) {
 	symbol := point.Symbol
-	var period string
 	var kind string
-	if point.Volatility != "" {
+	if point.Kind == "volatility" {
 		kind = "volatility"
-		period = point.Volatility
 	} else {
 		kind = "kline"
-		period = point.Period
 	}
 
-	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
+	key := fmt.Sprintf("%s_%s_%s", symbol, kind, point.Period)
 
 	s.latestMu.Lock()
 	defer s.latestMu.Unlock()
@@ -378,7 +396,7 @@ func (s *PubSubService) updateLatestPoint(point *model.AggregatedFutureKline) {
 		}
 	}
 	s.latestPoints[key] = point
-	fmt.Printf("[pubsub] latest points: %s\n", key)
+	log.Printf("[pubsub] latest points: %s\n", key)
 }
 
 // GetLatestPoint returns the latest cached 1m kline point for the given symbol.
@@ -394,12 +412,12 @@ func (s *PubSubService) GetLatestPoint(symbol, kind, period string) model.Aggreg
 	key := fmt.Sprintf("%s_%s_%s", symbol, kind, period)
 	point, ok := s.latestPoints[key]
 	if !ok || point == nil {
-		fmt.Printf("[pubsub] no cached point for %s\n", key)
+		log.Printf("[pubsub] no cached point for %s\n", key)
 		buf, err := json.MarshalIndent(s.latestPoints, "", "  ")
 		if err != nil {
-			fmt.Printf("[pubsub] failed to marshal latest points: %v\n", err)
+			log.Printf("[pubsub] failed to marshal latest points: %v\n", err)
 		} else {
-			fmt.Printf("[pubsub] latest points: %s\n", buf)
+			log.Printf("[pubsub] latest points: %s\n", buf)
 		}
 		return model.AggregatedFutureKline{}
 	}
@@ -415,7 +433,7 @@ func (s *PubSubService) addPoint(point *model.AggregatedFutureKline) []*model.Ag
 	var results []*model.AggregatedFutureKline
 
 	for key, agg := range s.aggregators {
-		fmt.Printf("debug: aggregators: %v\n", key)
+		log.Printf("debug: aggregators: %v\n", key)
 		// Only route points that match this aggregator's symbol
 		if agg.Symbol() != point.Symbol {
 			continue
@@ -424,13 +442,13 @@ func (s *PubSubService) addPoint(point *model.AggregatedFutureKline) []*model.Ag
 
 		complete := agg.Add(point)
 		if complete != nil {
-			fmt.Printf("[pubsub] aggregated %s/%s: %d points, start=%d -> end=%d\n",
+			log.Printf("[pubsub] aggregated %s/%s: %d points, start=%d -> end=%d\n",
 				agg.Symbol(), agg.Period(), agg.PointsPerAgg(),
 				complete.StartTime, complete.CloseTime)
 
 			// Log indicator values
 			for name, val := range complete.Indicators {
-				fmt.Printf("[pubsub]   indicator %s: %.4f\n", name, val)
+				log.Printf("[pubsub]   indicator %s: %.4f\n", name, val)
 			}
 
 			results = append(results, complete)
@@ -443,27 +461,32 @@ func (s *PubSubService) addPoint(point *model.AggregatedFutureKline) []*model.Ag
 // publishAggregated publishes the aggregated kline to the MQTT broker.
 func (s *PubSubService) publishAggregated(agg *model.AggregatedFutureKline) {
 	var topic string
-	switch agg.Volatility {
+	switch agg.Kind {
 	case "":
 		topic = fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, agg.Symbol, agg.Period)
 	default:
-		topic = fmt.Sprintf("%s/%s/%s", mqttVolatilityTopicPrefix, agg.Symbol, agg.Volatility)
+		topic = fmt.Sprintf("%s/%s/%s", mqttVolatilityTopicPrefix, agg.Symbol, agg.Period)
 	}
 
 	payload, err := json.Marshal(agg)
 	if err != nil {
-		fmt.Printf("publishAggregated Marshal error: %s\n", err.Error())
+		log.Printf("publishAggregated Marshal error: %s\n", err.Error())
 		return
 	}
 
-	token := s.mqttClient.Publish(topic, 1, false, payload)
-	token.Wait()
-	if token.Error() != nil {
-		fmt.Printf("[pubsub] failed to publish aggregated kline: %v\n", token.Error())
-	} else {
-		fmt.Printf("[pubsub] published aggregated kline: %s %s start=%d\n",
-			agg.Symbol, agg.Period, agg.StartTime)
+	// Dispatch to local (in-process) subscribers first
+	s.localMu.RLock()
+	fmt.Printf("publish Aggregated point to %s: %s %s start=%d\n", topic, agg.Symbol, agg.Period, agg.StartTime)
+	if subscribers, ok := s.localSubscribers[topic]; ok {
+		for ch := range subscribers {
+			select {
+			case ch <- payload:
+			default:
+				// Channel full, skip
+			}
+		}
 	}
+	s.localMu.RUnlock()
 }
 
 // compile-time interface checks

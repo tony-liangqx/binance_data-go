@@ -1,7 +1,7 @@
 package task
 
 import (
-	"fmt"
+	"log"
 
 	"binance.data.sync/src/model"
 )
@@ -72,7 +72,7 @@ func (a *volatilityAggregator) AddDefaultIndicators() {
 	vd := NewVolumeDensityIndicator(a.period)
 	vd.ColdStart(a.symbol, a.period)
 	a.indicators = append(a.indicators, vd)
-	fmt.Printf("[change_aggregator] added default indicators for %s/%s\n", a.symbol, a.period)
+	log.Printf("[change_aggregator] added default indicators for %s/%s\n", a.symbol, a.period)
 }
 
 // Add inserts a 1m point into the aggregator. When the price change percentage
@@ -86,7 +86,6 @@ func (a *volatilityAggregator) Add(point *model.AggregatedFutureKline) *model.Ag
 	copyed := *point
 	// 对外改变数据字段
 	copyed.Period = ""
-	copyed.Volatility = a.volatility
 	// 指标在 PubSubService.updateLatestPoint缓存时计算
 	return &copyed
 }

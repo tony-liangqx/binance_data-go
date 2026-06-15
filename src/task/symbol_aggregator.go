@@ -1,7 +1,7 @@
 package task
 
 import (
-	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -60,7 +60,7 @@ func (a *symbolAggregator) AddDefaultIndicators() {
 	sma := NewSMAIndicator(a.period, defaultSMAWindow)
 	sma.ColdStart(a.symbol, a.period)
 	a.indicators = append(a.indicators, sma)
-	fmt.Printf("[aggregator] added default indicators for %s/%s\n", a.symbol, a.period)
+	log.Printf("[aggregator] added default indicators for %s/%s\n", a.symbol, a.period)
 }
 
 // Symbol returns the trading symbol this aggregator tracks.
@@ -160,7 +160,7 @@ func (a *symbolAggregator) finalize(point *model.AggregatedFutureKline) *model.A
 		ind.Calculate(agg)
 		agg.Indicators[ind.Name()] = ind.GetValue()
 	}
-	fmt.Printf("debug: indicators: %v\n", names)
+	log.Printf("debug: indicators: %v\n", names)
 
 	// Reset window state, using the current point as the start of the next window
 	a.firstPoint = point

@@ -4,7 +4,6 @@ go 1.26.1
 
 require (
 	github.com/adshao/go-binance/v2 v2.8.11
-	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/gorilla/websocket v1.5.3
 	gorm.io/driver/clickhouse v0.6.0
 	gorm.io/gorm v1.31.1

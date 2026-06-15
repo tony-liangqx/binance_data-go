@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"time"
 
 	"binance.data.sync/src/model"
@@ -40,7 +40,7 @@ func main() {
 			Trades:           100 + uint32(i)*5,
 		}
 
-		fmt.Printf("sending kline point [%2d/%2d]: symbol=%s, period=%s, start=%d, open=%.2f, close=%.2f\n",
+		log.Printf("sending kline point [%2d/%2d]: symbol=%s, period=%s, start=%d, open=%.2f, close=%.2f\n",
 			i+1, 20, point.Symbol, point.Period, point.StartTime, point.Open, point.Close)
 
 		// pubSubService.PointChan <- point
@@ -49,10 +49,10 @@ func main() {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	fmt.Println("all 20 kline points sent successfully")
+	log.Println("all 20 kline points sent successfully")
 
 	// Keep running to allow PubSubService to process and publish
 	// (it will exit when the MQTT client disconnects on process termination)
 	time.Sleep(2 * time.Second)
-	fmt.Println("done")
+	log.Println("done")
 }

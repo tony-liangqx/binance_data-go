@@ -2,10 +2,12 @@ package task
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
 	"binance.data.sync/src/model"
+
 	"github.com/adshao/go-binance/v2/futures"
 )
 
@@ -31,7 +33,7 @@ type Subscriber struct {
 	syncing bool
 
 	// aggregator is the volatility aggregator that processes incoming kline points
-	aggregators []*model.VolatilityDataWriter
+	aggregators []*model.GridVolatilityDataWriter
 
 	// buffer holds kline points that arrived via websocket while a
 	// HistorySyncer was backfilling. They are drained in SyncDone,
@@ -48,10 +50,11 @@ type Subscriber struct {
 
 // NewSubscriber creates a new Subscriber instance
 func NewSubscriber(storage model.Storage, symbol string, period string) *Subscriber {
-	aggregators := []*model.VolatilityDataWriter{
-		model.NewVolatilityDataWriter(symbol, 0.5, storage),
-		model.NewVolatilityDataWriter(symbol, 1, storage),
-		model.NewVolatilityDataWriter(symbol, 2, storage),
+	aggregators := []*model.GridVolatilityDataWriter{
+		model.NewGridVolatilityDataWriter(storage),
+		// model.NewVolatilityDataWriter(symbol, 0.5, storage),
+		// model.NewVolatilityDataWriter(symbol, 1, storage),
+		// model.NewVolatilityDataWriter(symbol, 2, storage),
 	}
 	return &Subscriber{
 		storage:     storage,
@@ -111,7 +114,7 @@ func (s *Subscriber) SyncDone() {
 	s.buffer = nil
 	s.mu.Unlock()
 
-	fmt.Printf("[ws] %s %s history sync completed, resuming normal subscription(at %d)\n", s.symbol, s.period, s.timeStamp)
+	log.Printf("[ws] %s %s history sync completed, resuming normal subscription(at %d)\n", s.symbol, s.period, s.timeStamp)
 
 	// Process buffered points in order. These points arrived via websocket
 	// while the syncer was running. Many may already be committed by the
@@ -134,9 +137,9 @@ func (s *Subscriber) SyncDone() {
 //
 // This ensures that after a restart, volatility aggregation resumes from where it left off.
 func (s *Subscriber) alignWithKline() {
-	fmt.Println("start align with kline data task")
+	log.Println("start align with kline data task")
 	defer func() {
-		fmt.Println("align with kline data task completed")
+		log.Println("align with kline data task completed")
 	}()
 
 	// 1. 获取每个volatility的最后一条记录的close_time
@@ -153,26 +156,26 @@ func (s *Subscriber) alignWithKline() {
 		vol := aggregator.Volatility()
 		var last model.AggBinanceFutureKline
 		err := s.storage.GetDB().Raw(
-			"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? AND period = ? AND volatility = ? ORDER BY start_time DESC LIMIT 1",
+			"SELECT * FROM agg_binance_futures_kline WHERE symbol = ? ORDER BY start_time DESC LIMIT 1",
 			s.symbol, s.period, vol,
 		).Scan(&last).Error
 		if err != nil {
-			fmt.Printf("[alignWithKline] %s %s failed to query last agg close_time for volatility=%s: %v\n",
+			log.Printf("[alignWithKline] %s %s failed to query last agg close_time for volatility=%s: %v\n",
 				s.symbol, s.period, vol, err)
 			panic(err)
 		}
 		if last.StartTime != 0 {
 			volBoundaries[vol] = &volBoundary{lastCloseTime: last.CloseTime, exists: true}
-			fmt.Printf("[alignWithKline] volatility %s last close_time: %d\n", vol, last.CloseTime)
+			log.Printf("[alignWithKline] volatility %s last close_time: %d\n", vol, last.CloseTime)
 		} else {
 			// 1. 缺失的volatility从BinanceFutureKline表中最小的start_time开始
 			var minStartTime int64
 			err := s.storage.GetDB().Raw(
-				"SELECT MIN(start_time) FROM binance_futures_kline WHERE symbol = ? AND period = ?",
+				"SELECT MIN(start_time) FROM binance_futures_kline WHERE symbol = ?",
 				s.symbol, s.period,
 			).Scan(&minStartTime).Error
 			if err != nil {
-				fmt.Printf("[alignWithKline] %s %s failed to query min start_time: %v\n",
+				log.Printf("[alignWithKline] %s %s failed to query min start_time: %v\n",
 					s.symbol, s.period, err)
 				panic(err)
 			}
@@ -182,7 +185,7 @@ func (s *Subscriber) alignWithKline() {
 				fromTime = 0
 			}
 			volBoundaries[vol] = &volBoundary{lastCloseTime: fromTime, exists: false}
-			fmt.Printf("[alignWithKline] volatility %s has no history, starting from start_time: %d\n",
+			log.Printf("[alignWithKline] volatility %s has no history, starting from start_time: %d\n",
 				vol, minStartTime)
 		}
 	}
@@ -199,7 +202,7 @@ func (s *Subscriber) alignWithKline() {
 
 	if first {
 		// 没有配置任何aggregator, 直接返回
-		fmt.Printf("[alignWithKline] %s %s no aggregators configured, skipping\n", s.symbol, s.period)
+		log.Printf("[alignWithKline] %s %s no aggregators configured, skipping\n", s.symbol, s.period)
 		return
 	}
 
@@ -215,7 +218,7 @@ func (s *Subscriber) alignWithKline() {
 			s.symbol, lastStartTime, pageSize,
 		).Scan(&klines).Error
 		if err != nil {
-			fmt.Printf("[alignWithKline] %s %s failed to query klines: %v\n", s.symbol, s.period, err)
+			log.Printf("[alignWithKline] %s %s failed to query klines: %v\n", s.symbol, s.period, err)
 			panic(err)
 		}
 
@@ -251,7 +254,7 @@ func (s *Subscriber) alignWithKline() {
 				}
 				_, err := aggregator.Add(point)
 				if err != nil {
-					fmt.Printf("[alignWithKline] %s %s failed to aggregate point for volatility=%s: start_time=%d, err=%v\n",
+					log.Printf("[alignWithKline] %s %s failed to aggregate point for volatility=%s: start_time=%d, err=%v\n",
 						s.symbol, s.period, aggregator.Volatility(), point.StartTime, err)
 					panic(err)
 				}
@@ -264,7 +267,7 @@ func (s *Subscriber) alignWithKline() {
 
 		totalProcessed += len(klines)
 		lastStartTime = klines[len(klines)-1].StartTime
-		fmt.Printf("[alignWithKline] %s %s processed %d klines (batch, total=%d)...\n",
+		log.Printf("[alignWithKline] %s %s processed %d klines (batch, total=%d)...\n",
 			s.symbol, s.period, len(klines), totalProcessed)
 
 		if len(klines) < pageSize {
@@ -272,7 +275,7 @@ func (s *Subscriber) alignWithKline() {
 		}
 	}
 
-	fmt.Printf("[alignWithKline] %s %s alignment completed, total processed %d klines\n",
+	log.Printf("[alignWithKline] %s %s alignment completed, total processed %d klines\n",
 		s.symbol, s.period, totalProcessed)
 }
 
@@ -306,14 +309,14 @@ func (s *Subscriber) start() {
 	// Fallback: individual connection (used in tests)
 	doneC, stopC, err := futures.WsKlineServe(s.symbol, s.period, s.handleKline, s.handleError)
 	if err != nil {
-		fmt.Printf("failed to start kline websocket: %v\n", err)
+		log.Printf("failed to start kline websocket: %v\n", err)
 		return
 	}
 
-	fmt.Printf("subscriber started: symbol=%s, period=%s\n", s.symbol, s.period)
+	log.Printf("subscriber started: symbol=%s, period=%s\n", s.symbol, s.period)
 
 	<-doneC
-	fmt.Println("subscriber websocket connection closed")
+	log.Println("subscriber websocket connection closed")
 	_ = stopC
 }
 
@@ -376,7 +379,7 @@ func (s *Subscriber) processPoint(point *model.FutureKlinePoint) error {
 	// TODO：查询是否导致性能问题？
 	lastTime, err := s.storage.GetLastTimeStamp(s.symbol, s.period)
 	if err != nil {
-		fmt.Printf("failed to get last timestamp: %v\n", err)
+		log.Printf("failed to get last timestamp: %v\n", err)
 		return err
 	}
 
@@ -385,7 +388,7 @@ func (s *Subscriber) processPoint(point *model.FutureKlinePoint) error {
 	// already wrote. Skip to avoid duplicate-key errors (unique index on
 	// symbol+period+start_time) and wasted work.
 	if lastTime > 0 && point.StartTime <= lastTime {
-		fmt.Printf("[ws] skip already synced kline: %s %s start=%d\n",
+		log.Printf("[ws] skip already synced kline: %s %s start=%d\n",
 			s.symbol, s.period, point.StartTime)
 		return nil
 	}
@@ -400,7 +403,7 @@ func (s *Subscriber) processPoint(point *model.FutureKlinePoint) error {
 		}
 
 		// Gap detected: start HistorySyncer asynchronously to backfill
-		fmt.Printf("[ws] gap detected: last=%d, current=%d, diff=%dms. starting history sync...\n",
+		log.Printf("[ws] gap detected: last=%d, current=%d, diff=%dms. starting history sync...\n",
 			lastTime, point.StartTime, diff)
 
 		// Acquire write lock to set up sync state
@@ -433,7 +436,7 @@ func (s *Subscriber) aggregatePoint(point *model.FutureKlinePoint) ([]*model.Agg
 	for _, aggregator := range s.aggregators {
 		agg, err := aggregator.Add(point)
 		if err != nil {
-			fmt.Printf("[volatility_data_writer(%s %s)] failed to add point to aggregator: %v\n", aggregator.Symbol(), aggregator.Volatility(), err)
+			log.Printf("[volatility_data_writer(%s %s)] failed to add point to aggregator: %v\n", aggregator.Symbol(), aggregator.Volatility(), err)
 			return nil, err
 		}
 		if agg != nil {
@@ -449,18 +452,18 @@ func (s *Subscriber) savePoint(point *model.FutureKlinePoint) error {
 		// Commit会合并volatility数据
 		needPubPoints, err := s.aggregatePoint(point)
 		if err != nil {
-			fmt.Printf("[subscriber] aggregator error: %v\n", err)
+			log.Printf("[subscriber] aggregator error: %v\n", err)
 			// TODO:: 未来解决
 			panic(err)
 		}
 
 		if err := s.storage.Commit(point); err != nil {
-			fmt.Printf("[subscriber] failed to commit kline error: %v\n", err)
+			log.Printf("[subscriber] failed to commit kline error: %v\n", err)
 			// TODO:: 未来解决
 			panic(err)
 		}
 
-		fmt.Printf("[subscriber] saved kline: %s %s start=%d close=%f\n",
+		log.Printf("[subscriber] saved kline: %s %s start=%d close=%f\n",
 			s.symbol, s.period, point.StartTime, point.Close)
 
 		kline := &model.AggregatedFutureKline{
@@ -502,14 +505,14 @@ func (s *Subscriber) publishPoint(point *model.AggregatedFutureKline) {
 
 // handleError handles websocket errors
 func (s *Subscriber) handleError(err error) {
-	fmt.Printf("[ws] websocket error: %v\n", err)
+	log.Printf("[ws] websocket error: %v\n", err)
 }
 
 // mustParseFloat parses a string to float64, panics on failure
 func mustParseFloat(s string) float64 {
 	v, err := parseFloat(s)
 	if err != nil {
-		fmt.Printf("warning: failed to parse float %q: %v\n", s, err)
+		log.Printf("warning: failed to parse float %q: %v\n", s, err)
 		return 0
 	}
 	return v

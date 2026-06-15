@@ -3,6 +3,7 @@ package task
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -137,7 +138,7 @@ func (h *klinesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		fmt.Printf("[klines-api] query error: %v\n", err)
+		log.Printf("[klines-api] query error: %v\n", err)
 		writeAPIError(w, -1001, fmt.Sprintf("Internal error: failed to query kline data. %s", err.Error()))
 		return
 	}
@@ -150,7 +151,7 @@ func (h *klinesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(records); err != nil {
-		fmt.Printf("[klines-api] response encoding error: %v\n", err)
+		log.Printf("[klines-api] response encoding error: %v\n", err)
 	}
 }
 
@@ -246,7 +247,7 @@ func (h *klinesHandler) queryAggregated(db *gorm.DB, symbol, interval string, st
 	ORDER BY bucket_start ASC
 	LIMIT ?
 `, bucketExpr, whereClause)
-	fmt.Printf("sql :%s\n", sql)
+	log.Printf("sql :%s\n", sql)
 	// Args order: [period, whereClause args..., limit]
 	queryArgs := make([]any, 0, len(args)+2)
 	queryArgs = append(queryArgs, interval) // for `? AS period`

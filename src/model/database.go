@@ -90,7 +90,7 @@ type AggBinanceFutureKline struct {
 	Trades                   uint32  `gorm:"column:trades;type:UInt32;not null;comment:成交笔数"`
 	TakerBuyBaseAssetVolume  float64 `gorm:"column:taker_buy_base_asset_volume;type:Float64;not null"`
 	TakerBuyQuoteAssetVolume float64 `gorm:"column:taker_buy_quote_asset_volume;type:Float64;not null"`
-
+	GridID                   int64   `gorm:"-"`
 	// 时间与状态
 	CloseTime int64 `gorm:"column:close_time;type:Int64;not null"`
 
@@ -127,7 +127,6 @@ type AggregatedFutureKline struct {
 	Symbol                   string         `json:"symbol"`
 	Period                   string         `json:"period,omitempty"`
 	Kind                     string         `json:"-"`
-	Volatility               string         `json:"volatility,omitempty"`
 	StartTime                int64          `json:"start_time"`
 	Open                     float64        `json:"open"`
 	High                     float64        `json:"high"`
@@ -144,5 +143,6 @@ type AggregatedFutureKline struct {
 	Ma10                     float64        `json:"ma10"`
 	Ratio                    float64        `json:"ratio"`
 	History                  []float64      `json:"-"`
+	GridID                   int64          `json:"-"`
 	Indicators               map[string]any `json:"indicators,omitempty"`
 }

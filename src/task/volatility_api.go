@@ -3,6 +3,7 @@ package task
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -173,7 +174,7 @@ func (h *volatilityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Query agg_binance_futures_kline directly (volatility data is pre-computed)
 	klines, err := h.queryVolatility(db, symbol, interval, startTime, endTime, hasStartTime, hasEndTime, limit)
 	if err != nil {
-		fmt.Printf("[volatility-api] query error: %v\n", err)
+		log.Printf("[volatility-api] query error: %v\n", err)
 		writeAPIError(w, -1001, "Internal error: failed to query volatility data.")
 		return
 	}
@@ -186,7 +187,7 @@ func (h *volatilityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(records); err != nil {
-		fmt.Printf("[volatility-api] response encoding error: %v\n", err)
+		log.Printf("[volatility-api] response encoding error: %v\n", err)
 	}
 }
 
@@ -276,10 +277,9 @@ SETTINGS
 	return klines, nil
 }
 
-func QueryVolatilityWindow(db *gorm.DB, symbol, interval string) ([]model.AggBinanceFutureKline, error) {
+func QueryVolatilityWindow(db *gorm.DB, symbol string) ([]model.AggBinanceFutureKline, error) {
 	query := db.Table("agg_binance_futures_kline").
-		Where("symbol = ?", symbol).
-		Where("volatility = ?", interval).Order("start_time DESC").Limit(10)
+		Where("symbol = ?", symbol).Order("start_time DESC").Limit(10)
 	var points []model.AggBinanceFutureKline
 	if err := query.Find(&points).Error; err != nil {
 		return nil, err
@@ -308,14 +308,14 @@ func (h *allVolatilityPointsHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 	points, err := h.GetAllVolatilityPoints()
 	if err != nil {
-		fmt.Printf("[volatility-api] GetAllVolatilityPoints query error: %v\n", err)
+		log.Printf("[volatility-api] GetAllVolatilityPoints query error: %v\n", err)
 		writeAPIError(w, -1001, "Internal error: failed to query all volatility points.")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(points); err != nil {
-		fmt.Printf("[volatility-api] response encoding error: %v\n", err)
+		log.Printf("[volatility-api] response encoding error: %v\n", err)
 	}
 }
 
