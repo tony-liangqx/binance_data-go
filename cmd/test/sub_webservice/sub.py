@@ -32,10 +32,6 @@ class KlineWebSocketClient:
     def __init__(self):
         """
         初始化 WebSocket 客户端
-
-        Args:
-            symbol: 交易对 (如 "BTCUSDT", "BTC-USDT")
-            interval: K线周期 ("1m", "5m", "15m", "1h", "4h", "1d" 等)
         """
         self.exchange = "joyful"
         self.interval = "1m"
