@@ -26,7 +26,7 @@ ALL_SYMBOLS = [
 	"LINKUSDT",
 	"UNIUSDT",
 	"TONUSDT",
-]  # 同上
+]
 
 def on_message(ws, message):
     try:
