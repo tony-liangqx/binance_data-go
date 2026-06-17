@@ -510,88 +510,59 @@
                     dom.tableHead.appendChild(tr);
                 }
 
-                function updateTable() {
-                    var tbody = dom.tableBody;
+                function renderTable() {
                     var selectedSymbols = getSelectedSymbols();
 
-                    // Remove rows for symbols no longer selected
-                    var rows = Array.from(tbody.children);
-                    for (var r = 0; r < rows.length; r++) {
-                        var tr = rows[r];
-                        var sym = tr.getAttribute("data-symbol");
-                        if (sym && selectedSymbols.indexOf(sym) === -1) {
-                            tr.remove();
-                            r--;
-                        }
-                    }
-
-                    // Update or create rows
+                    var html = "";
                     for (var s = 0; s < selectedSymbols.length; s++) {
                         var sym = selectedSymbols[s];
                         var data = dataMap[sym];
-                        var tr = tbody.querySelector(
-                            'tr[data-symbol="' + sym + '"]',
-                        );
 
                         if (!data) {
-                            if (!tr) {
-                                tr = document.createElement("tr");
-                                tr.setAttribute("data-symbol", sym);
-                                tr.innerHTML =
-                                    '<td class="symbol-cell"><strong>' +
-                                    sym +
-                                    "</strong></td>" +
-                                    '<td colspan="' +
-                                    (TABLE_COLUMNS.length - 1) +
-                                    '" class="pending">waiting for data...</td>';
-                                tbody.appendChild(tr);
-                            }
+                            html += '<tr data-symbol="' + sym + '">';
+                            html +=
+                                '<td class="symbol-cell"><strong>' +
+                                sym +
+                                "</strong></td>";
+                            html +=
+                                '<td colspan="' +
+                                (TABLE_COLUMNS.length - 1) +
+                                '" class="pending">waiting for data...</td>';
+                            html += "</tr>";
                             continue;
                         }
 
-                        // Data exists — if existing row is a placeholder (wrong cell count due to colspan),
-                        // remove it and create a fresh row to avoid column misalignment
-                        if (tr && tr.cells.length !== TABLE_COLUMNS.length) {
-                            tr.remove();
-                            tr = null;
-                        }
-
-                        if (!tr) {
-                            tr = document.createElement("tr");
-                            tr.setAttribute("data-symbol", sym);
-                            tbody.appendChild(tr);
-                        }
-
-                        // Update cells
+                        html += '<tr data-symbol="' + sym + '">';
                         for (var c = 0; c < TABLE_COLUMNS.length; c++) {
                             var col = TABLE_COLUMNS[c];
                             var value = data[col.key];
                             var formatted = col.format(value);
-                            var cell = tr.children[c];
-                            if (cell) {
-                                cell.textContent = formatted;
-                                // Remove any residual colspan from placeholder row
-                                cell.removeAttribute("colspan");
-                                cell.classList.remove("flash");
-                                void cell.offsetWidth;
-                                cell.classList.add("flash");
-                            } else {
-                                var td = document.createElement("td");
-                                td.textContent = formatted;
-                                tr.appendChild(td);
-                            }
-                        }
 
-                        // Color ratio cell
-                        if (data.ratio !== undefined) {
-                            var ratioCell =
-                                tr.children[TABLE_COLUMNS.length - 1];
-                            if (ratioCell) {
-                                ratioCell.style.color =
-                                    data.ratio >= 0 ? "#e74c3c" : "#2ecc71";
+                            var cls =
+                                col.key === "symbol"
+                                    ? "symbol-cell flash"
+                                    : "flash";
+                            var style = "";
+                            if (col.key === "ratio") {
+                                style =
+                                    data.ratio >= 0
+                                        ? ' style="color:#e74c3c"'
+                                        : ' style="color:#2ecc71"';
                             }
+
+                            html +=
+                                '<td class="' +
+                                cls +
+                                '"' +
+                                style +
+                                ">" +
+                                formatted +
+                                "</td>";
                         }
+                        html += "</tr>";
                     }
+
+                    dom.tableBody.innerHTML = html;
                 }
 
                 function updateStats() {
@@ -682,19 +653,15 @@
                             // Handle both a single object and an array of objects
                             var records = Array.isArray(raw) ? raw : [raw];
 
-                            var changed = false;
                             for (var i = 0; i < records.length; i++) {
                                 var record = records[i];
                                 if (record && record.symbol) {
                                     dataMap[record.symbol] = record;
-                                    changed = true;
                                 }
                             }
 
-                            if (changed) {
-                                updateTable();
-                                updateStats();
-                            }
+                            // Schedule a single batched DOM render via requestAnimationFrame
+                            scheduleRender();
                         } catch (e) {
                             console.warn(
                                 "Failed to parse message:",
@@ -748,6 +715,20 @@
                     }, 3000);
                 }
 
+                // ─── Render Scheduling ──────────────────────────────
+
+                var _renderScheduled = false;
+
+                function scheduleRender() {
+                    if (_renderScheduled) return;
+                    _renderScheduled = true;
+                    requestAnimationFrame(function () {
+                        _renderScheduled = false;
+                        renderTable();
+                        updateStats();
+                    });
+                }
+
                 // ─── Status ──────────────────────────────────────────
 
                 function setStatus(type, message) {
@@ -767,8 +748,7 @@
                     dom.disconnectBtn.disabled = true;
 
                     dom.symbolList.addEventListener("change", function () {
-                        updateTable();
-                        updateStats();
+                        scheduleRender();
                     });
 
                     updateStats();

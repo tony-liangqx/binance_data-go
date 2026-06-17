@@ -183,82 +183,48 @@ function buildTableHeader(): void {
   thead.appendChild(tr);
 }
 
-function updateTable(): void {
-  const tbody = dom.tableBody;
-  // Get symbols in the order they are selected
+/** Build entire tbody HTML as a string and set via innerHTML.
+ *  This avoids all incremental DOM complexity (querySelector loops,
+ *  live HTMLCollection mutation, colspan transitions) and is faster
+ *  than 280+ individual DOM operations per update. */
+function renderTable(): void {
   const selectedSymbols = getSelectedSymbols();
 
-  // Remove rows for symbols no longer selected
-  for (const tr of Array.from(tbody.children)) {
-    const sym = tr.getAttribute("data-symbol");
-    if (sym && !selectedSymbols.includes(sym)) {
-      tr.remove();
-    }
-  }
-
-  // Update or create rows
+  let html = "";
   for (const sym of selectedSymbols) {
     const data = dataMap.get(sym);
-    let tr = tbody.querySelector<HTMLTableRowElement>(
-      `tr[data-symbol="${sym}"]`,
-    );
 
     if (!data) {
-      // No data yet — show placeholder row
-      if (!tr) {
-        tr = document.createElement("tr");
-        tr.setAttribute("data-symbol", sym);
-        tr.innerHTML =
-          `<td class="symbol-cell"><strong>${sym}</strong></td>` +
-          `<td colspan="${TABLE_COLUMNS.length - 1}" class="pending">waiting for data...</td>`;
-        tbody.appendChild(tr);
-      }
+      // Placeholder row
+      html += `<tr data-symbol="${sym}">`;
+      html += `<td class="symbol-cell"><strong>${sym}</strong></td>`;
+      html += `<td colspan="${TABLE_COLUMNS.length - 1}" class="pending">waiting for data...</td>`;
+      html += "</tr>";
       continue;
     }
 
-    // Data exists — if existing row is a placeholder (wrong cell count due to colspan),
-    // remove it and create a fresh row to avoid column misalignment
-    if (tr && tr.cells.length !== TABLE_COLUMNS.length) {
-      tr.remove();
-      tr = null;
-    }
-
-    if (!tr) {
-      tr = document.createElement("tr");
-      tr.setAttribute("data-symbol", sym);
-      tbody.appendChild(tr);
-    }
-
-    // Update cells
-    const cells = tr.children;
+    // Data row — all <td> are fresh DOM nodes,
+    // so the CSS flash animation plays naturally on creation.
+    html += `<tr data-symbol="${sym}">`;
     for (let i = 0; i < TABLE_COLUMNS.length; i++) {
       const col = TABLE_COLUMNS[i];
       const value = data[col.key as keyof AggregatedKline];
       const formatted = col.format(value);
-      if (cells[i]) {
-        (cells[i] as HTMLElement).textContent = formatted;
-        // Remove any residual colspan from placeholder row
-        (cells[i] as HTMLElement).removeAttribute("colspan");
-        // Add a flash animation class to highlight updated cells
-        (cells[i] as HTMLElement).classList.remove("flash");
-        // Force reflow to restart animation
-        void (cells[i] as HTMLElement).offsetWidth;
-        (cells[i] as HTMLElement).classList.add("flash");
-      } else {
-        const td = document.createElement("td");
-        td.textContent = formatted;
-        tr.appendChild(td);
-      }
-    }
 
-    // Color the ratio cell
-    if (data.ratio !== undefined) {
-      const ratioCell = tr.children[TABLE_COLUMNS.length - 1] as HTMLElement;
-      if (ratioCell) {
-        ratioCell.style.color = data.ratio >= 0 ? "#e74c3c" : "#2ecc71";
-      }
+      const cls = col.key === "symbol" ? "symbol-cell flash" : "flash";
+      const style =
+        col.key === "ratio"
+          ? data.ratio >= 0
+            ? ' style="color:#e74c3c"'
+            : ' style="color:#2ecc71"'
+          : "";
+
+      html += `<td class="${cls}"${style}>${formatted}</td>`;
     }
+    html += "</tr>";
   }
+
+  dom.tableBody.innerHTML = html;
 }
 
 function updateStats(): void {
@@ -331,18 +297,14 @@ function connect(): void {
       // Handle both a single object and an array of objects
       const records = Array.isArray(raw) ? raw : [raw];
 
-      let changed = false;
       for (const record of records) {
         if (record && record.symbol) {
           dataMap.set(record.symbol, record as AggregatedKline);
-          changed = true;
         }
       }
 
-      if (changed) {
-        updateTable();
-        updateStats();
-      }
+      // Schedule a single batched DOM render via requestAnimationFrame
+      scheduleRender();
     } catch {
       console.warn("Failed to parse message:", event.data);
     }
@@ -393,6 +355,23 @@ function scheduleReconnect(): void {
   }, 3000);
 }
 
+// ─── Render Scheduling ──────────────────────────────────────────────
+
+let _renderScheduled = false;
+
+/** Schedule a single table render via requestAnimationFrame.
+ *  Multiple calls before the next frame are coalesced into one render,
+ *  avoiding layout thrashing from frequent WebSocket messages. */
+function scheduleRender(): void {
+  if (_renderScheduled) return;
+  _renderScheduled = true;
+  requestAnimationFrame(() => {
+    _renderScheduled = false;
+    renderTable();
+    updateStats();
+  });
+}
+
 // ─── Status ─────────────────────────────────────────────────────────
 
 function setStatus(type: string, message: string): void {
@@ -415,10 +394,9 @@ function init(): void {
   dom.disconnectBtn.addEventListener("click", disconnect);
   dom.disconnectBtn.disabled = true;
 
-  // Rebuild connection when symbol selection changes
+  // Schedule a batched table render when symbol selection changes.
   dom.symbolList.addEventListener("change", () => {
-    updateTable();
-    updateStats();
+    scheduleRender();
   });
 
   // Initial stats
