@@ -74,12 +74,12 @@ const TABLE_COLUMNS = [
   {
     key: "start_time",
     label: "Start Time",
-    format: (v: unknown) => new Date(v as number).toLocaleTimeString(),
+    format: (v: unknown) => new Date(v as number).toLocaleString(),
   },
   {
     key: "close_time",
     label: "Close Time",
-    format: (v: unknown) => new Date(v as number).toLocaleTimeString(),
+    format: (v: unknown) => new Date(v as number).toLocaleString(),
   },
   { key: "open", label: "Open", format: (v: unknown) => Number(v).toFixed(2) },
   { key: "high", label: "High", format: (v: unknown) => Number(v).toFixed(2) },
