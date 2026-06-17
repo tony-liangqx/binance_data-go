@@ -259,7 +259,7 @@
         </style>
     </head>
     <body>
-        <h1>📊 Binance Aggregated Kline Viewer</h1>
+        <h1>📊 Joyful Aggregated Kline Viewer</h1>
 
         <!-- Control Panel -->
         <div class="control-panel">
@@ -549,6 +549,13 @@
                             continue;
                         }
 
+                        // Data exists — if existing row is a placeholder (wrong cell count due to colspan),
+                        // remove it and create a fresh row to avoid column misalignment
+                        if (tr && tr.cells.length !== TABLE_COLUMNS.length) {
+                            tr.remove();
+                            tr = null;
+                        }
+
                         if (!tr) {
                             tr = document.createElement("tr");
                             tr.setAttribute("data-symbol", sym);
@@ -563,6 +570,8 @@
                             var cell = tr.children[c];
                             if (cell) {
                                 cell.textContent = formatted;
+                                // Remove any residual colspan from placeholder row
+                                cell.removeAttribute("colspan");
                                 cell.classList.remove("flash");
                                 void cell.offsetWidth;
                                 cell.classList.add("flash");
@@ -661,15 +670,28 @@
 
                             // Ignore ping messages
                             if (
+                                raw &&
+                                typeof raw === "object" &&
+                                !Array.isArray(raw) &&
                                 "ping" in raw &&
                                 Object.keys(raw).length === 1
                             ) {
                                 return;
                             }
 
-                            var data = raw;
-                            if (data.symbol) {
-                                dataMap[data.symbol] = data;
+                            // Handle both a single object and an array of objects
+                            var records = Array.isArray(raw) ? raw : [raw];
+
+                            var changed = false;
+                            for (var i = 0; i < records.length; i++) {
+                                var record = records[i];
+                                if (record && record.symbol) {
+                                    dataMap[record.symbol] = record;
+                                    changed = true;
+                                }
+                            }
+
+                            if (changed) {
                                 updateTable();
                                 updateStats();
                             }

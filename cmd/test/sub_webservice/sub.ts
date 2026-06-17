@@ -216,6 +216,13 @@ function updateTable(): void {
       continue;
     }
 
+    // Data exists — if existing row is a placeholder (wrong cell count due to colspan),
+    // remove it and create a fresh row to avoid column misalignment
+    if (tr && tr.cells.length !== TABLE_COLUMNS.length) {
+      tr.remove();
+      tr = null;
+    }
+
     if (!tr) {
       tr = document.createElement("tr");
       tr.setAttribute("data-symbol", sym);
@@ -230,6 +237,8 @@ function updateTable(): void {
       const formatted = col.format(value);
       if (cells[i]) {
         (cells[i] as HTMLElement).textContent = formatted;
+        // Remove any residual colspan from placeholder row
+        (cells[i] as HTMLElement).removeAttribute("colspan");
         // Add a flash animation class to highlight updated cells
         (cells[i] as HTMLElement).classList.remove("flash");
         // Force reflow to restart animation
@@ -306,16 +315,31 @@ function connect(): void {
 
   ws.onmessage = (event: MessageEvent) => {
     try {
-      const raw = JSON.parse(event.data) as ServerMessage;
+      const raw = JSON.parse(event.data);
 
       // Ignore ping messages
-      if ("ping" in raw && Object.keys(raw).length === 1) {
+      if (
+        raw &&
+        typeof raw === "object" &&
+        !Array.isArray(raw) &&
+        "ping" in raw &&
+        Object.keys(raw).length === 1
+      ) {
         return;
       }
 
-      const data = raw as AggregatedKline;
-      if (data.symbol) {
-        dataMap.set(data.symbol, data);
+      // Handle both a single object and an array of objects
+      const records = Array.isArray(raw) ? raw : [raw];
+
+      let changed = false;
+      for (const record of records) {
+        if (record && record.symbol) {
+          dataMap.set(record.symbol, record as AggregatedKline);
+          changed = true;
+        }
+      }
+
+      if (changed) {
         updateTable();
         updateStats();
       }
