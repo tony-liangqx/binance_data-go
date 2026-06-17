@@ -39,6 +39,7 @@ func main() {
 	// This ensures a single WebSocket connection handles all symbols,
 	// routing incoming kline events to the correct subscriber by symbol.
 	klineConn := task.NewKlineConnection()
+	pubSubService.SetKlineConnection(klineConn)
 
 	// Create and start a Subscriber for each symbol/period pair
 	for _, sub := range subscriptions {

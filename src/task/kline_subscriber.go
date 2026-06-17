@@ -284,6 +284,9 @@ func (s *Subscriber) Start(timeStamp int64) {
 	// 对齐kline记录与volality数据库记录
 	s.setTimeStamp(timeStamp)
 	s.alignWithKline()
+	// 注册到网络中
+	s.conn.Register(s)
+
 	// 通知已经完成对齐任务
 	s.alignEventC <- true
 	// 等待历史数据加载完成
@@ -300,7 +303,6 @@ func (s *Subscriber) Start(timeStamp int64) {
 // creating its own individual WebSocket connection for backward compatibility.
 func (s *Subscriber) start() {
 	if s.conn != nil {
-		s.conn.Register(s)
 		// Block forever — HandleKline will be called by the shared
 		// connection's dispatcher when kline events arrive for this symbol.
 		select {}

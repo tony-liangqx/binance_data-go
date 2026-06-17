@@ -59,6 +59,9 @@ type PubSubService struct {
 	AlignEventC       chan bool
 	LoadHistoryEventC chan bool
 	eventCount        int
+
+	// 网络对象
+	conn *KlineConnection
 }
 
 // NewPubSubService creates a new PubSubService with default MQTT broker settings.
@@ -87,6 +90,10 @@ func NewPubSubServiceWithBroker(broker string, eventCount int) *PubSubService {
 // SetStorage sets the storage backend for persisting aggregated kline data.
 func (s *PubSubService) SetStorage(storage model.Storage) {
 	s.storage = storage
+}
+
+func (s *PubSubService) SetKlineConnection(conn *KlineConnection) {
+	s.conn = conn
 }
 
 // SubscribeLocal registers a channel to receive raw JSON payloads for a given topic.
@@ -331,6 +338,11 @@ func (s *PubSubService) Start() {
 	s.loadHistoricalData()
 	close(s.AlignEventC)
 	close(s.LoadHistoryEventC)
+	// 启动网络
+	if s.conn == nil {
+		panic("没有网络对象，请初始化网络")
+	}
+	go s.conn.run()
 	s.start()
 }
 

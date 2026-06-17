@@ -34,12 +34,12 @@ func NewKlineConnection() *KlineConnection {
 // On the next reconnection, the new symbol will be included automatically.
 func (kc *KlineConnection) Register(sub *Subscriber) {
 	kc.mu.Lock()
+	defer kc.mu.Unlock()
 	kc.subscribers[sub.symbol] = sub
-	if !kc.started {
-		kc.started = true
-		go kc.run()
-	}
-	kc.mu.Unlock()
+	// if !kc.started {
+	// 	kc.started = true
+	// 	go kc.run()
+	// }
 
 	log.Printf("[shared_ws] subscriber registered: symbol=%s, total=%d\n",
 		sub.symbol, len(kc.subscribers))
