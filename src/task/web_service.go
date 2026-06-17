@@ -90,6 +90,10 @@ func (s *WebSocketService) start() {
 	// Register WebSocket handler
 	http.HandleFunc("/stream", s.handleStream)
 
+	// Register the /sub static page handler
+	http.Handle("/sub", NewSubPageHandler("./static"))
+	log.Printf("[http-server] registered static page: /sub\n")
+
 	// Register REST API handlers
 	if s.storage != nil {
 		http.Handle("/fapi/v1/klines", &klinesHandler{storage: s.storage})
