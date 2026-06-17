@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Binance Aggregated Kline WebSocket Viewer</title>
+        <style>
+            /* ─── Reset & Base ─────────────────────────────────────── */
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    "Helvetica Neue", Arial, sans-serif;
+                font-size: 13px;
+                background: #0d1117;
+                color: #c9d1d9;
+                padding: 16px;
+                min-height: 100vh;
+            }
+            h1 {
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #f0f6fc;
+            }
+
+            /* ─── Control Panel ────────────────────────────────────── */
+            .control-panel {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 16px;
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                margin-bottom: 12px;
+            }
+            .control-panel label {
+                font-size: 12px;
+                color: #8b949e;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .control-panel input,
+            .control-panel select {
+                padding: 6px 10px;
+                font-size: 13px;
+                background: #0d1117;
+                border: 1px solid #30363d;
+                border-radius: 6px;
+                color: #c9d1d9;
+                outline: none;
+                min-width: 180px;
+            }
+            .control-panel input:focus,
+            .control-panel select:focus {
+                border-color: #58a6ff;
+            }
+            .btn {
+                padding: 7px 18px;
+                font-size: 13px;
+                font-weight: 500;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                cursor: pointer;
+                transition:
+                    background 0.15s,
+                    opacity 0.15s;
+            }
+            .btn:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+            .btn-primary {
+                background: #238636;
+                color: #fff;
+                border-color: #2ea043;
+            }
+            .btn-primary:hover:not(:disabled) {
+                background: #2ea043;
+            }
+            .btn-danger {
+                background: #da3633;
+                color: #fff;
+                border-color: #f85149;
+            }
+            .btn-danger:hover:not(:disabled) {
+                background: #f85149;
+            }
+
+            /* ─── Status ───────────────────────────────────────────── */
+            #status {
+                font-size: 12px;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-weight: 500;
+            }
+            .status-connected {
+                color: #3fb950;
+                background: rgba(63, 185, 80, 0.1);
+            }
+            .status-connecting {
+                color: #d29922;
+                background: rgba(210, 153, 34, 0.1);
+            }
+            .status-disconnected {
+                color: #8b949e;
+                background: rgba(139, 148, 158, 0.1);
+            }
+            .status-error {
+                color: #f85149;
+                background: rgba(248, 81, 73, 0.1);
+            }
+
+            /* ─── Main Layout ──────────────────────────────────────── */
+            .main-layout {
+                display: flex;
+                gap: 12px;
+            }
+            .sidebar {
+                width: 180px;
+                flex-shrink: 0;
+            }
+            .content {
+                flex: 1;
+                min-width: 0;
+            }
+
+            /* ─── Symbol List ──────────────────────────────────────── */
+            .symbol-list {
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                padding: 8px;
+            }
+            .symbol-list h3 {
+                font-size: 12px;
+                color: #8b949e;
+                margin-bottom: 6px;
+                padding: 0 4px;
+            }
+            .symbol-checkbox {
+                display: block;
+                padding: 3px 6px;
+                font-size: 12px;
+                cursor: pointer;
+                border-radius: 4px;
+                transition: background 0.1s;
+                user-select: none;
+            }
+            .symbol-checkbox:hover {
+                background: #1c2128;
+            }
+            .symbol-checkbox input {
+                margin-right: 4px;
+            }
+
+            /* ─── Stats ────────────────────────────────────────────── */
+            #stats {
+                font-size: 11px;
+                color: #8b949e;
+                margin-top: 6px;
+                padding: 4px;
+            }
+
+            /* ─── Table ────────────────────────────────────────────── */
+            .table-wrapper {
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                overflow: auto;
+                max-height: calc(100vh - 120px);
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                white-space: nowrap;
+                font-size: 12px;
+            }
+            thead {
+                position: sticky;
+                top: 0;
+                z-index: 1;
+            }
+            th {
+                background: #1c2128;
+                padding: 8px 10px;
+                text-align: right;
+                font-weight: 600;
+                color: #8b949e;
+                border-bottom: 1px solid #30363d;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            th:first-child {
+                text-align: left;
+            }
+            td {
+                padding: 6px 10px;
+                text-align: right;
+                border-bottom: 1px solid #21262d;
+                font-variant-numeric: tabular-nums;
+                transition: background 0.1s;
+            }
+            td:first-child {
+                text-align: left;
+                font-weight: 600;
+                color: #f0f6fc;
+            }
+            tr:hover td {
+                background: #1c2128;
+            }
+            td.pending {
+                color: #484f58;
+                font-style: italic;
+                text-align: center;
+            }
+            .symbol-cell {
+                min-width: 90px;
+            }
+
+            /* ─── Flash Animation ──────────────────────────────────── */
+            @keyframes cell-flash {
+                0% {
+                    background: rgba(88, 166, 255, 0.25);
+                }
+                100% {
+                    background: transparent;
+                }
+            }
+            td.flash {
+                animation: cell-flash 0.6s ease-out;
+            }
+
+            /* ─── Scrollbar ────────────────────────────────────────── */
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            ::-webkit-scrollbar-track {
+                background: #0d1117;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #30363d;
+                border-radius: 4px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: #484f58;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>📊 Binance Aggregated Kline Viewer</h1>
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <label>
+                Server URL
+                <input
+                    type="text"
+                    id="server-url"
+                    placeholder="ws://localhost:8080"
+                />
+            </label>
+            <label>
+                Kind
+                <select id="kind-select">
+                    <option value="volatility">volatility</option>
+                    <option value="kline">kline</option>
+                </select>
+            </label>
+            <button class="btn btn-primary" id="connect-btn">Connect</button>
+            <button class="btn btn-danger" id="disconnect-btn" disabled>
+                Disconnect
+            </button>
+            <span id="status" class="status-disconnected">Disconnected</span>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Sidebar: Symbol Selection -->
+            <div class="sidebar">
+                <div class="symbol-list">
+                    <h3>Symbols</h3>
+                    <div id="symbol-list"></div>
+                    <div id="stats"></div>
+                </div>
+            </div>
+
+            <!-- Content: Data Table -->
+            <div class="content">
+                <div class="table-wrapper">
+                    <table>
+                        <thead id="table-head"></thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compiled JavaScript (from sub.ts) -->
+        <script>
+            (function () {
+                "use strict";
+
+                // ─── Types ───────────────────────────────────────────
+
+                /** Data columns in display order */
+                var TABLE_COLUMNS = [
+                    {
+                        key: "symbol",
+                        label: "Symbol",
+                        format: function (v) {
+                            return String(v);
+                        },
+                    },
+                    {
+                        key: "start_time",
+                        label: "Start Time",
+                        format: function (v) {
+                            return new Date(v).toLocaleTimeString();
+                        },
+                    },
+                    {
+                        key: "close_time",
+                        label: "Close Time",
+                        format: function (v) {
+                            return new Date(v).toLocaleTimeString();
+                        },
+                    },
+                    {
+                        key: "open",
+                        label: "Open",
+                        format: function (v) {
+                            return Number(v).toFixed(2);
+                        },
+                    },
+                    {
+                        key: "high",
+                        label: "High",
+                        format: function (v) {
+                            return Number(v).toFixed(2);
+                        },
+                    },
+                    {
+                        key: "low",
+                        label: "Low",
+                        format: function (v) {
+                            return Number(v).toFixed(2);
+                        },
+                    },
+                    {
+                        key: "close",
+                        label: "Close",
+                        format: function (v) {
+                            return Number(v).toFixed(2);
+                        },
+                    },
+                    {
+                        key: "volume",
+                        label: "Volume",
+                        format: function (v) {
+                            return Number(v).toFixed(4);
+                        },
+                    },
+                    {
+                        key: "quote_asset_volume",
+                        label: "Quote Vol",
+                        format: function (v) {
+                            return Number(v).toFixed(2);
+                        },
+                    },
+                    {
+                        key: "trades",
+                        label: "Trades",
+                        format: function (v) {
+                            return Number(v).toLocaleString();
+                        },
+                    },
+                    {
+                        key: "count",
+                        label: "Count",
+                        format: function (v) {
+                            return Number(v).toLocaleString();
+                        },
+                    },
+                    {
+                        key: "vd",
+                        label: "VD",
+                        format: function (v) {
+                            return Number(v).toFixed(4);
+                        },
+                    },
+                    {
+                        key: "ma10",
+                        label: "MA10",
+                        format: function (v) {
+                            return Number(v).toFixed(2);
+                        },
+                    },
+                    {
+                        key: "ratio",
+                        label: "Ratio",
+                        format: function (v) {
+                            return Number(v).toFixed(4);
+                        },
+                    },
+                ];
+
+                // ─── Configuration ───────────────────────────────────
+
+                var DEFAULT_SERVER = "ws://154.86.24.27:8081";
+                var DEFAULT_PERIOD = "1m";
+                var DEFAULT_KIND = "volatility";
+
+                var ALL_SYMBOLS = [
+                    "BTCUSDT",
+                    "ETHUSDT",
+                    "SOLUSDT",
+                    "TRXUSDT",
+                    "DOGEUSDT",
+                    "XRPUSDT",
+                    "LTCUSDT",
+                    "SUIUSDT",
+                    "ZKUSDT",
+                    "AAVEUSDT",
+                    "AVAXUSDT",
+                    "ZECUSDT",
+                    "1000PEPEUSDT",
+                    "OPUSDT",
+                    "ADAUSDT",
+                    "LINKUSDT",
+                    "UNIUSDT",
+                    "TONUSDT",
+                ];
+
+                // ─── State ───────────────────────────────────────────
+
+                var ws = null;
+                var reconnectTimer = null;
+                var isConnected = false;
+                var dataMap = {};
+
+                // ─── DOM ─────────────────────────────────────────────
+
+                function $(id) {
+                    return document.getElementById(id);
+                }
+
+                var dom = {
+                    serverUrl: $("server-url"),
+                    kindSelect: $("kind-select"),
+                    symbolList: $("symbol-list"),
+                    connectBtn: $("connect-btn"),
+                    disconnectBtn: $("disconnect-btn"),
+                    status: $("status"),
+                    tableHead: $("table-head"),
+                    tableBody: $("table-body"),
+                    stats: $("stats"),
+                };
+
+                // ─── Symbol Checkboxes ───────────────────────────────
+
+                function buildSymbolCheckboxes() {
+                    dom.symbolList.innerHTML = "";
+                    for (var i = 0; i < ALL_SYMBOLS.length; i++) {
+                        var sym = ALL_SYMBOLS[i];
+                        var label = document.createElement("label");
+                        label.className = "symbol-checkbox";
+                        var cb = document.createElement("input");
+                        cb.type = "checkbox";
+                        cb.value = sym;
+                        cb.checked = true;
+                        label.appendChild(cb);
+                        label.appendChild(document.createTextNode(" " + sym));
+                        dom.symbolList.appendChild(label);
+                    }
+                }
+
+                function getSelectedSymbols() {
+                    var inputs = dom.symbolList.querySelectorAll(
+                        "input[type=checkbox]:checked",
+                    );
+                    var result = [];
+                    for (var i = 0; i < inputs.length; i++) {
+                        result.push(inputs[i].value);
+                    }
+                    return result;
+                }
+
+                // ─── Table ───────────────────────────────────────────
+
+                function buildTableHeader() {
+                    dom.tableHead.innerHTML = "";
+                    var tr = document.createElement("tr");
+                    for (var i = 0; i < TABLE_COLUMNS.length; i++) {
+                        var th = document.createElement("th");
+                        th.textContent = TABLE_COLUMNS[i].label;
+                        tr.appendChild(th);
+                    }
+                    dom.tableHead.appendChild(tr);
+                }
+
+                function updateTable() {
+                    var tbody = dom.tableBody;
+                    var selectedSymbols = getSelectedSymbols();
+
+                    // Remove rows for symbols no longer selected
+                    var rows = Array.from(tbody.children);
+                    for (var r = 0; r < rows.length; r++) {
+                        var tr = rows[r];
+                        var sym = tr.getAttribute("data-symbol");
+                        if (sym && selectedSymbols.indexOf(sym) === -1) {
+                            tr.remove();
+                            r--;
+                        }
+                    }
+
+                    // Update or create rows
+                    for (var s = 0; s < selectedSymbols.length; s++) {
+                        var sym = selectedSymbols[s];
+                        var data = dataMap[sym];
+                        var tr = tbody.querySelector(
+                            'tr[data-symbol="' + sym + '"]',
+                        );
+
+                        if (!data) {
+                            if (!tr) {
+                                tr = document.createElement("tr");
+                                tr.setAttribute("data-symbol", sym);
+                                tr.innerHTML =
+                                    '<td class="symbol-cell"><strong>' +
+                                    sym +
+                                    "</strong></td>" +
+                                    '<td colspan="' +
+                                    (TABLE_COLUMNS.length - 1) +
+                                    '" class="pending">waiting for data...</td>';
+                                tbody.appendChild(tr);
+                            }
+                            continue;
+                        }
+
+                        if (!tr) {
+                            tr = document.createElement("tr");
+                            tr.setAttribute("data-symbol", sym);
+                            tbody.appendChild(tr);
+                        }
+
+                        // Update cells
+                        for (var c = 0; c < TABLE_COLUMNS.length; c++) {
+                            var col = TABLE_COLUMNS[c];
+                            var value = data[col.key];
+                            var formatted = col.format(value);
+                            var cell = tr.children[c];
+                            if (cell) {
+                                cell.textContent = formatted;
+                                cell.classList.remove("flash");
+                                void cell.offsetWidth;
+                                cell.classList.add("flash");
+                            } else {
+                                var td = document.createElement("td");
+                                td.textContent = formatted;
+                                tr.appendChild(td);
+                            }
+                        }
+
+                        // Color ratio cell
+                        if (data.ratio !== undefined) {
+                            var ratioCell =
+                                tr.children[TABLE_COLUMNS.length - 1];
+                            if (ratioCell) {
+                                ratioCell.style.color =
+                                    data.ratio >= 0 ? "#e74c3c" : "#2ecc71";
+                            }
+                        }
+                    }
+                }
+
+                function updateStats() {
+                    var selected = getSelectedSymbols().length;
+                    var withData = Object.keys(dataMap).length;
+                    dom.stats.textContent =
+                        "Symbols: " +
+                        selected +
+                        " selected, " +
+                        withData +
+                        " with data";
+                }
+
+                // ─── WebSocket ───────────────────────────────────────
+
+                function buildStreamUrl() {
+                    var server = dom.serverUrl.value.trim() || DEFAULT_SERVER;
+                    var kind = dom.kindSelect.value;
+                    var symbols = getSelectedSymbols();
+
+                    // Always include BTCUSDT first
+                    var allSymbols = ["BTCUSDT"];
+                    for (var i = 0; i < symbols.length; i++) {
+                        if (symbols[i] !== "BTCUSDT") {
+                            allSymbols.push(symbols[i]);
+                        }
+                    }
+
+                    var suffix = "@" + kind + "_" + DEFAULT_PERIOD;
+                    var streams = allSymbols
+                        .map(function (s) {
+                            return s + suffix;
+                        })
+                        .join("/");
+                    return server + "/stream?streams=" + streams;
+                }
+
+                function connect() {
+                    if (ws) {
+                        disconnect();
+                    }
+
+                    var url = buildStreamUrl();
+                    if (getSelectedSymbols().length === 0) {
+                        setStatus("error", "Please select at least one symbol");
+                        return;
+                    }
+
+                    setStatus("connecting", "Connecting...");
+
+                    try {
+                        ws = new WebSocket(url);
+                    } catch (err) {
+                        setStatus(
+                            "error",
+                            "Failed to create WebSocket: " + err,
+                        );
+                        return;
+                    }
+
+                    ws.onopen = function () {
+                        isConnected = true;
+                        setStatus(
+                            "connected",
+                            "Connected to " +
+                                (dom.serverUrl.value || DEFAULT_SERVER),
+                        );
+                        dom.connectBtn.disabled = true;
+                        dom.disconnectBtn.disabled = false;
+                        updateStats();
+                    };
+
+                    ws.onmessage = function (event) {
+                        try {
+                            var raw = JSON.parse(event.data);
+
+                            // Ignore ping messages
+                            if (
+                                "ping" in raw &&
+                                Object.keys(raw).length === 1
+                            ) {
+                                return;
+                            }
+
+                            var data = raw;
+                            if (data.symbol) {
+                                dataMap[data.symbol] = data;
+                                updateTable();
+                                updateStats();
+                            }
+                        } catch (e) {
+                            console.warn(
+                                "Failed to parse message:",
+                                event.data,
+                            );
+                        }
+                    };
+
+                    ws.onerror = function (err) {
+                        console.error("WebSocket error:", err);
+                        setStatus("error", "WebSocket error occurred");
+                    };
+
+                    ws.onclose = function (event) {
+                        isConnected = false;
+                        setStatus(
+                            event.code === 1000 ? "disconnected" : "error",
+                            "Disconnected (code: " + event.code + ")",
+                        );
+                        dom.connectBtn.disabled = false;
+                        dom.disconnectBtn.disabled = true;
+                        ws = null;
+                        scheduleReconnect();
+                    };
+                }
+
+                function disconnect() {
+                    if (reconnectTimer) {
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = null;
+                    }
+                    if (ws) {
+                        ws.onclose = null;
+                        ws.close(1000, "user disconnect");
+                        ws = null;
+                    }
+                    isConnected = false;
+                    setStatus("disconnected", "Disconnected");
+                    dom.connectBtn.disabled = false;
+                    dom.disconnectBtn.disabled = true;
+                }
+
+                function scheduleReconnect() {
+                    if (reconnectTimer) return;
+                    reconnectTimer = setTimeout(function () {
+                        reconnectTimer = null;
+                        if (!isConnected) {
+                            setStatus("connecting", "Reconnecting...");
+                            connect();
+                        }
+                    }, 3000);
+                }
+
+                // ─── Status ──────────────────────────────────────────
+
+                function setStatus(type, message) {
+                    dom.status.className = "status-" + type;
+                    dom.status.textContent = message;
+                }
+
+                // ─── Init ────────────────────────────────────────────
+
+                function init() {
+                    buildSymbolCheckboxes();
+                    buildTableHeader();
+                    dom.serverUrl.value = DEFAULT_SERVER;
+
+                    dom.connectBtn.addEventListener("click", connect);
+                    dom.disconnectBtn.addEventListener("click", disconnect);
+                    dom.disconnectBtn.disabled = true;
+
+                    dom.symbolList.addEventListener("change", function () {
+                        updateTable();
+                        updateStats();
+                    });
+
+                    updateStats();
+                }
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", init);
+                } else {
+                    init();
+                }
+            })();
+        </script>
+    </body>
+</html>
