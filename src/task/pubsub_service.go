@@ -296,15 +296,20 @@ func (s *PubSubService) loadHistoricalData() {
 				continue
 			}
 			sum := 0.0
+			var vd float64
 			for _, item := range window {
-				vd := item.Volume / float64(item.Count)
-				point.History = append(point.History, item.Volume)
+				vd = item.Volume / float64(item.Count)
+				point.History = append(point.History, vd)
 				sum += vd
 			}
-			point.Vd = window[wlen-1].Volume / float64(window[wlen-1].Count)
+			point.Vd = vd
 			ma10 := sum / float64(wlen)
 			point.Ma10 = ma10
-			point.Ratio = point.Vd / ma10
+			if ma10 != 0 {
+				point.Ratio = point.Vd / ma10
+			} else {
+				point.Ratio = 0
+			}
 
 			s.updateLatestPoint(point)
 			log.Printf("[pubsub] loaded latest agg kline: %s/%s start=%d, vd=%f, ma10=%f, ratio=%f\n", k.Symbol, k.Period, k.StartTime, point.Vd, point.Ma10, point.Ratio)
@@ -386,12 +391,12 @@ func (s *PubSubService) updateLatestPoint(point *model.AggregatedFutureKline) {
 		point.Vd = point.Volume / float64(point.Count)
 		length := len(old.History)
 		if length < 10 {
-			point.Ma10 = (point.Volume + old.Ma10*float64(length)) / float64(length)
-			point.History = append(old.History, point.Volume)
+			point.Ma10 = (point.Vd + old.Ma10*float64(length)) / float64(length)
+			point.History = append(old.History, point.Vd)
 			point.Ratio = point.Vd / point.Ma10
 		} else {
-			point.Ma10 = (point.Volume-old.History[0])/10.0 + old.Ma10
-			point.History = append(old.History[1:], point.Volume)
+			point.Ma10 = (point.Vd-old.History[0])/10.0 + old.Ma10
+			point.History = append(old.History[1:], point.Vd)
 			point.Ratio = point.Vd / point.Ma10
 		}
 	}
