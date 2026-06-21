@@ -348,30 +348,9 @@ func (s *PubSubService) Start() {
 
 // start connects to MQTT and enters the main event loop.
 func (s *PubSubService) start() {
-	// Connect to MQTT broker
-	// client := mqtt.NewClient(s.mqttOpts)
-	// if token := client.Connect(); token.Wait() && token.Error() != nil {
-	// 	log.Printf("[pubsub] failed to connect to MQTT broker %s: %v\n", s.broker, token.Error())
-	// 	panic(token.Error())
-	// } else {
-	// 	s.mqttClient = client
-	// 	log.Printf("[pubsub] connected to MQTT broker %s (client_id=%s)\n", s.broker, s.clientID)
-	// 	defer client.Disconnect(250)
-	// }
-
 	log.Println("[pubsub] started, waiting for kline points...")
 
 	for point := range s.PointChan {
-		// if s.mqttClient == nil || !s.mqttClient.IsConnected() {
-		// 	client := mqtt.NewClient(s.mqttOpts)
-		// 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		// 		log.Printf("[pubsub] MQTT reconnect failed: %v\n", token.Error())
-		// 		continue
-		// 	}
-		// 	s.mqttClient = client
-		// 	log.Printf("[pubsub] reconnected to MQTT broker %s\n", s.broker)
-		// }
-
 		// Update the cache
 		s.updateLatestPoint(point)
 
